@@ -125,15 +125,21 @@ What the device *does* do is reach out to the internet the instant the button
 is pressed. A 109-second capture containing exactly one ring, at a known time,
 separated three candidate signals:
 
-| Signal | When | Meaning |
-|---|---|---|
-| **TCP to port 32002** on two push servers | **at the button press** | **the ring** |
-| `f1 f9` (UDP to the P2P servers) | 22 s later | call going unanswered |
-| `f1 12` | every ~33 s, forever | periodic registration |
+The trigger is a **TCP connection to port 32002** on two push servers, opened
+the instant the button is pressed. It is confirmed in three independent ring
+captures, and it is the only TCP the device ever makes:
 
-The last two are traps — both appear exactly once in a short capture and look
-event-shaped. Triggering on `f1 f9` gives a doorbell that is 22 seconds late;
-triggering on `f1 12` gives one that rings twice a minute forever.
+| Capture | TCP SYN → `:32002` | `f1 f9` |
+|---|---|---|
+| urmet3 (13.1 s) | **+11.401 s** | absent |
+| urmet4 (11.0 s) | **+7.590 s** | absent |
+| urmet5 (108.9 s) | **+13.552 s** | +35.3 s |
+
+Two decoys worth naming, since both look convincing in a single short capture:
+
+* `f1 f9` appears only when a call goes **unanswered**, ~22 s late. Absent from
+  two of the three ring captures.
+* `f1 12` is periodic registration, every ~33 s forever.
 
 ### Enabling it
 

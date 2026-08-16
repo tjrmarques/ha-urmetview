@@ -5,17 +5,27 @@ cloud push addressed to registered smartphones, which Home Assistant cannot
 receive. But the device's own outbound traffic gives it away, and a router that
 can mirror turns that into a local event.
 
-From a 109-second capture containing exactly one ring, at a known time:
+**TCP to port 32002** is the ring. Confirmed across three independent ring
+captures - the device opened exactly one connection to the same two push
+servers in each, at the moment the button was pressed:
 
-* **TCP to port 32002** on two push servers, once, ~0.5s of encrypted
-  exchange, at the moment the button was pressed. **This is the trigger.**
-* ``f1 f9`` (UDP to the P2P servers) once, but **22 seconds later** - most
-  likely the call going unanswered. Too late to be a doorbell.
-* ``f1 12`` every ~33 seconds throughout: periodic registration. Using it
-  would ring the doorbell twice a minute forever.
+===========  ==================  ==========
+capture      TCP SYN to :32002   ``f1 f9``
+===========  ==================  ==========
+urmet3       +11.401s            absent
+urmet4       +7.590s             absent
+urmet5       +13.552s            +35.3s
+===========  ==================  ==========
 
-An earlier revision of this file triggered on ``f1 f9``. That was wrong, and
-the timing is why: the ring is immediate, ``f1 f9`` is not.
+It is also the *only* TCP the device ever makes - 75-78 packets per capture,
+all port 32002 - so matching on it cannot collide with anything else.
+
+Two decoys, both of which an earlier revision of this file fell for:
+
+* ``f1 f9`` appears only in urmet5, 22s after the press, and is absent from
+  the other two ring captures. It is the call going unanswered, not the ring.
+  Triggering on it gives a doorbell that is 22 seconds late.
+* ``f1 12`` fires every ~33 seconds forever - periodic registration.
 
 Set up on a MikroTik. Note the filter must NOT be restricted to port 32100 -
 the ring is TCP/32002:

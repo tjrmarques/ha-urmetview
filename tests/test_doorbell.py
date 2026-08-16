@@ -3,12 +3,15 @@
 That capture contained exactly one ring, at a known time, and three candidate
 signals. These tests pin down which is which:
 
-* TCP SYN to port 32002 - at the button press. The trigger.
-* `f1 f9` - 22s later, the call going unanswered. Must NOT fire.
-* `f1 12` - every ~33s forever. Must NOT fire.
+* TCP SYN to port 32002 - at the button press. The trigger. Present in all
+  three ring captures (+11.401s, +7.590s, +13.552s).
+* `f1 f9` - only in urmet5, 22s late, absent from the other two ring
+  captures. The call going unanswered. Must NOT fire.
+* `f1 12` - every ~33s forever, registration. Must NOT fire.
 
-The last two are the traps: both look event-shaped, and an earlier revision
-triggered on `f1 f9`, which would have made the doorbell 22 seconds late.
+The last two are the traps: both look event-shaped in one short capture, and
+an earlier revision triggered on `f1 f9`, which would have made the doorbell
+22 seconds late and silent whenever the call was answered.
 """
 
 from __future__ import annotations
