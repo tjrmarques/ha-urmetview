@@ -135,6 +135,13 @@ captures, and it is the only TCP the device ever makes:
 | urmet4 (11.0 s) | **+7.590 s** | absent |
 | urmet5 (108.9 s) | **+13.552 s** | +35.3 s |
 
+The push servers are separate infrastructure from the P2P fleet — AWS
+us-east-1 and DigitalOcean, versus `*.caycctv.com`'s AWS hosts — and the device
+**never resolves them by name**. The only DNS it ever issues is for
+`p2p2`/`p2p3.caycctv.com`, so the push addresses are hardcoded in firmware.
+Match on the port, never on the address: a firmware update can move them with
+no DNS to follow.
+
 Two decoys worth naming, since both look convincing in a single short capture:
 
 * `f1 f9` appears only when a call goes **unanswered**, ~22 s late. Absent from

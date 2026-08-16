@@ -65,8 +65,14 @@ MSG_REGISTER = 0x12
 CLOUD_PORT = 32100
 
 #: The device opens a TCP connection here to raise the push notification the
-#: instant the button is pressed. Seen on two independent providers, so match
-#: on the port rather than on an address.
+#: instant the button is pressed.
+#:
+#: Match on the port, never on the address. The push servers are on entirely
+#: different infrastructure from the P2P fleet (AWS us-east-1 and DigitalOcean,
+#: versus caycctv.com's AWS hosts), and the device **never resolves them** - the
+#: only DNS it ever issues is for p2p2/p2p3.caycctv.com, and neither push IP
+#: appears in any answer. The addresses are hardcoded in firmware, so a firmware
+#: update can change them with no DNS to follow, while the port is structural.
 PUSH_PORT = 32002
 
 TZSP_TAG_END = 0x01
