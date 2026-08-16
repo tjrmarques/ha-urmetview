@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+*.pcap
+*.h264
+*.mp4
+.venv/
+.DS_Store
