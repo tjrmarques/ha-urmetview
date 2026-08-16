@@ -25,11 +25,14 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_AUTH_HASH,
+    CONF_DOORBELL_TZSP,
+    CONF_DOORBELL_TZSP_PORT,
     CONF_QUALITY,
     CONF_STREAM_IDLE_TIMEOUT,
     CONF_TALK_REPEAT,
     CONF_UID,
     DEFAULT_STREAM_IDLE_TIMEOUT,
+    DEFAULT_TZSP_PORT,
     DOMAIN,
 )
 from .urmet import UrmetAuthError, UrmetError, UrmetSession
@@ -202,6 +205,16 @@ class UrmetOptionsFlow(OptionsFlow):
                         default=options.get(CONF_TALK_REPEAT, DEFAULT_TALK_REPEAT),
                     ): NumberSelector(
                         NumberSelectorConfig(min=1, max=12, mode=NumberSelectorMode.BOX)
+                    ),
+                    vol.Optional(
+                        CONF_DOORBELL_TZSP,
+                        default=options.get(CONF_DOORBELL_TZSP, False),
+                    ): bool,
+                    vol.Optional(
+                        CONF_DOORBELL_TZSP_PORT,
+                        default=options.get(CONF_DOORBELL_TZSP_PORT, DEFAULT_TZSP_PORT),
+                    ): NumberSelector(
+                        NumberSelectorConfig(min=1, max=65535, mode=NumberSelectorMode.BOX)
                     ),
                 }
             ),

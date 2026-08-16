@@ -16,14 +16,17 @@ import asyncio
 import contextlib
 import logging
 import time
+from collections.abc import Callable
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
     DEFAULT_STREAM_IDLE_TIMEOUT,
+    DEFAULT_TZSP_PORT,
     SIGNAL_STATE_UPDATED,
 )
+from . import doorbell as doorbell_mirror
 from .media import MediaPipeline
 from .urmet import UrmetError, UrmetSession
 from .urmet import audio as urmet_audio
@@ -55,6 +58,8 @@ class UrmetCoordinator:
         quality: str = DEFAULT_QUALITY,
         stream_idle_timeout: int = DEFAULT_STREAM_IDLE_TIMEOUT,
         talk_repeat: int = DEFAULT_TALK_REPEAT,
+        doorbell_mirror: bool = False,
+        doorbell_port: int = DEFAULT_TZSP_PORT,
     ) -> None:
         self.hass = hass
         self.entry_id = entry_id
@@ -66,6 +71,8 @@ class UrmetCoordinator:
         self.quality = quality
         self.stream_idle_timeout = stream_idle_timeout
         self.talk_repeat = talk_repeat
+        self.doorbell_mirror = doorbell_mirror
+        self.doorbell_port = doorbell_port
 
         self.session: UrmetSession | None = None
         self.pipeline = MediaPipeline(ffmpeg_binary)
@@ -82,6 +89,9 @@ class UrmetCoordinator:
         self._idle_task: asyncio.Task[None] | None = None
         self._connect_task: asyncio.Task[None] | None = None
         self._shutdown = False
+        self._doorbell_transport = None
+        self._doorbell_listener = None
+        self._doorbell_callbacks: list[Callable[[], None]] = []
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -91,6 +101,52 @@ class UrmetCoordinator:
         self._connect_task = self.hass.async_create_background_task(
             self._async_keepalive(), name=f"urmetview-keepalive-{self.entry_id}"
         )
+        if self.doorbell_mirror:
+            await self._async_start_doorbell()
+
+    async def _async_start_doorbell(self) -> None:
+        """Listen for mirrored traffic so rings become local events.
+
+        Optional, and a failure here must not take the whole integration down -
+        video and the door controls work fine without it.
+        """
+        try:
+            self._doorbell_transport, self._doorbell_listener = (
+                await doorbell_mirror.async_start_listener(
+                    self.doorbell_port,
+                    self.host,
+                    self._fire_doorbell,
+                    self._note_register_port,
+                )
+            )
+        except OSError as err:
+            _LOGGER.error(
+                "Could not bind the doorbell mirror port %s (%s). Ring detection "
+                "is disabled; everything else still works.",
+                self.doorbell_port,
+                err,
+            )
+
+    @callback
+    def register_doorbell_callback(self, callback_fn: Callable[[], None]) -> None:
+        self._doorbell_callbacks.append(callback_fn)
+
+    @callback
+    def _fire_doorbell(self) -> None:
+        _LOGGER.debug("Doorbell rang")
+        for callback_fn in self._doorbell_callbacks:
+            callback_fn()
+
+    @callback
+    def _note_register_port(self, port: int) -> None:
+        """The device registers from the port it serves sessions on.
+
+        Free, always-current port discovery for anyone mirroring traffic - it
+        removes the need to rediscover after the device rotates its port.
+        """
+        if port != self.port:
+            _LOGGER.debug("Device registration port changed to %s", port)
+            self.port = port
 
     async def async_shutdown(self) -> None:
         self._shutdown = True
@@ -99,6 +155,9 @@ class UrmetCoordinator:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._connect_task
         self._cancel_idle_timer()
+        if self._doorbell_transport is not None:
+            self._doorbell_transport.close()
+            self._doorbell_transport = None
         await self.pipeline.async_stop()
         await self._async_disconnect()
 

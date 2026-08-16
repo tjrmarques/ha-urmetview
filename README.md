@@ -21,7 +21,7 @@ video, the door lock and the gate work locally without the vendor app.
 | Switching between outdoor stations | Working |
 | Stream quality LD / SD / HD | Working (bitrate & frame rate, not resolution) |
 | Talk — audio *out* to the door station | Spike (`tools/urmet_talk.py`) |
-| Doorbell ring event | **Unresolved** — see [Doorbell](#doorbell) |
+| Doorbell ring event | Solved — needs a router that can mirror, see [Doorbell](#doorbell) |
 
 ### Entities
 
@@ -32,6 +32,7 @@ video, the door lock and the gate work locally without the vendor app.
 | `select.stream_quality` | LD / SD / HD |
 | `button.door_lock_release` | The key symbol — acts on the active station |
 | `button.gate_release` | Gate/driveway — acts on the active station |
+| `event.doorbell` | Fires on ring (`device_class: doorbell`) |
 | `switch.talk` | Holds the outbound audio channel open |
 | `binary_sensor.session` | Whether we hold a session |
 | `sensor.video_channel` | `idle` / `streaming`, with consumer and frame counts |
@@ -115,24 +116,44 @@ constraint, not a design choice.
 
 ## Doorbell
 
-Unresolved, and worth being straight about. Packet captures show that when the
-bell rings, the device sends **nothing on the LAN** — not to the phone, not to a
-client holding an open ping link. The Urmet manual describes the alert as a
-"Linkage push … to all smartphones associated with the WiFi module", i.e. a
-cloud push to registered phones. Home Assistant is not a registered phone and
-cannot receive one.
+When the bell rings the device sends **nothing on the LAN**. The Urmet manual
+describes the alert as a "Linkage push … to all smartphones associated with the
+WiFi module" — a cloud push to registered phones, which Home Assistant is not
+and cannot become.
 
-Open question: whether a *logged-in* session receives an in-band ring message.
-`tools/urmet_listen.py` exists to answer exactly that — run it, ring the bell,
-and see whether anything unsolicited arrives.
+What the device *does* do is announce the ring to Urmet's rendezvous servers.
+A 109-second capture containing exactly one ring settled which message that is:
 
-If it turns out to be cloud-only, the practical options are:
+| Message | Behaviour | Meaning |
+|---|---|---|
+| `f1 f9` | **once**, to all three cloud servers, never repeated | **the ring** |
+| `f1 12` | every ~33s, all capture long | periodic registration |
 
-1. **A dry contact on the indoor unit's call/chime line** (Shelly, ESPHome).
-   Instant, fully local, and independent of all of this. Recommended.
-2. **Router mirroring** — mirror the device's cloud-bound control traffic to HA
-   and trigger on it (`tools/urmet_tzsp.py` validates this). Needs a router that
-   can mirror, and needs a message that actually correlates with rings.
+The device also rotates its registration port immediately after the ring and
+re-registers three times in quick succession — telling the cloud where to route
+the incoming call.
+
+`f1 12` is the trap here: in a short capture it looks event-shaped, and using it
+would fire your doorbell twice a minute forever.
+
+### Enabling it
+
+Mirror the device's cloud-bound control traffic to Home Assistant. On MikroTik:
+
+```
+/tool sniffer set filter-ip-address=<device-ip>/32 filter-port=32100 \
+    filter-stream=yes streaming-enabled=yes streaming-server=<ha-ip>:37008
+/tool sniffer start
+```
+
+Then turn on **Doorbell via router mirror** in the integration options. Filtered
+this way it is a trickle of traffic, not media. `tools/urmet_tzsp.py` lets you
+verify the mirror before enabling it.
+
+This is off by default because it needs a router that can mirror. Without it the
+`event.doorbell` entity still exists and can be fired by an automation from any
+other source — a dry contact on the indoor unit's chime line, for instance,
+which is the most reliable option of all and needs none of this protocol.
 
 ## Design notes
 

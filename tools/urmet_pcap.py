@@ -27,11 +27,14 @@ AUTH_RE = re.compile(rb'\{"username":"([ -~]{1,32})","auth":"([0-9A-Fa-f]{32})"\
 JSON_RE = re.compile(rb'\{"[ -~]{2,300}?\}')
 
 MSG_NAMES = {
-    0x00: "HELLO", 0x01: "HELLO_ACK", 0x12: "DEV_LGN_CRC", 0x13: "DEV_LGN_CRC_ACK",
+    0x00: "HELLO", 0x01: "HELLO_ACK", 0x12: "DEV_LGN_CRC (periodic)",
+    0x13: "DEV_LGN_CRC_ACK",
     0x20: "P2P_REQ", 0x21: "P2P_REQ_ACK", 0x30: "LAN_SEARCH", 0x31: "LAN_NOTIFY",
     0x41: "checkCam", 0x42: "session ack", 0xD0: "DATA", 0xD1: "ACK",
-    0xE0: "ping", 0xE1: "ping ack", 0xF0: "CLOSE",
+    0xE0: "ping", 0xE1: "ping ack", 0xF0: "CLOSE", 0xF9: "DOORBELL RING",
 }
+
+MSG_RING = 0xF9
 
 
 def read_pcap(path: str):
@@ -126,6 +129,16 @@ def main() -> int:
                 if text not in jsons:
                     jsons.append(text)
 
+    rings: list[float] = []
+    for ts, frame in packets:
+        parsed = parse_udp(frame)
+        if parsed is None:
+            continue
+        payload = parsed[4]
+        if len(payload) >= 2 and payload[0] == 0xF1 and payload[1] == MSG_RING:
+            if not rings or ts - rings[-1] > 1.0:
+                rings.append(ts)
+
     duration = packets[-1][0] - t0
     size = sum(len(f) for _, f in packets)
     print(f"{args.pcap}: {len(packets)} packets, {size/1e6:.2f} MB, {duration:.1f}s")
@@ -138,7 +151,12 @@ def main() -> int:
 
     print("\nUrmet message types:")
     for msg_type, count in sorted(types.items()):
-        print(f"  f1 {msg_type:02x} {MSG_NAMES.get(msg_type,'?'):<16} {count}")
+        print(f"  f1 {msg_type:02x} {MSG_NAMES.get(msg_type,'?'):<24} {count}")
+
+    if rings:
+        print(f"\n  *** {len(rings)} DOORBELL RING(S) ***")
+        for when in rings:
+            print(f"      at +{when - t0:.3f}s into the capture")
 
     print()
     if credentials:

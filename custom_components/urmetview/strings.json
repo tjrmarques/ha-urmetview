@@ -30,32 +30,57 @@
         "data": {
           "quality": "Default stream quality",
           "stream_idle_timeout": "Release video after (seconds with no viewers)",
-          "talk_repeat": "Talk frame retransmissions"
+          "talk_repeat": "Talk frame retransmissions",
+          "doorbell_tzsp": "Doorbell via router mirror",
+          "doorbell_tzsp_port": "Mirror listen port"
         },
         "data_description": {
           "stream_idle_timeout": "The video channel is released when nobody is watching, so the phone app can use it.",
-          "talk_repeat": "Higher is more robust on a lossy network but uses more bandwidth. The official app sends about 12."
+          "talk_repeat": "Higher is more robust on a lossy network but uses more bandwidth. The official app sends about 12.",
+          "doorbell_tzsp": "The ring is a cloud push, so it never reaches Home Assistant directly. If your router can mirror the device's traffic here (MikroTik: stream to this host as TZSP), rings become a local event. Off by default.",
+          "doorbell_tzsp_port": "UDP port the mirror streams to. MikroTik's default is 37008."
         }
       }
     }
   },
   "services": {
-    "open_lock": { "name": "Release door lock", "description": "Release the door lock on the active outdoor station." },
-    "open_gate": { "name": "Release gate", "description": "Release the gate on the active outdoor station." },
+    "open_lock": {
+      "name": "Release door lock",
+      "description": "Release the door lock on the active outdoor station."
+    },
+    "open_gate": {
+      "name": "Release gate",
+      "description": "Release the gate on the active outdoor station."
+    },
     "select_station": {
       "name": "Select outdoor station",
       "description": "Switch the camera to a specific outdoor station.",
-      "fields": { "station": { "name": "Station", "description": "Which outdoor station to show." } }
+      "fields": {
+        "station": {
+          "name": "Station",
+          "description": "Which outdoor station to show."
+        }
+      }
     },
     "set_quality": {
       "name": "Set stream quality",
       "description": "Change bitrate and frame rate. Resolution is always 960x240.",
-      "fields": { "quality": { "name": "Quality", "description": "Quality preset." } }
+      "fields": {
+        "quality": {
+          "name": "Quality",
+          "description": "Quality preset."
+        }
+      }
     },
     "talk": {
       "name": "Speak at the door station",
       "description": "Play audio through the outdoor station's speaker.",
-      "fields": { "media": { "name": "Media", "description": "Path or URL of the audio to play." } }
+      "fields": {
+        "media": {
+          "name": "Media",
+          "description": "Path or URL of the audio to play."
+        }
+      }
     }
   }
 }

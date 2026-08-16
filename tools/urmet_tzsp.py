@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Validate the router-mirror route to a doorbell event.
+"""Local doorbell trigger, by mirroring the device's cloud traffic.
 
-The ring appears to be a cloud push to registered smartphones, with nothing sent
-on the LAN. But the *device* still talks to Urmet's servers when it happens, and
-a MikroTik can mirror that traffic to us. If a specific device->cloud message
-turns out to correlate with rings, this becomes a local doorbell trigger.
+The ring is a cloud push to registered smartphones - nothing is sent on the LAN,
+so Home Assistant cannot receive it directly. But the *device* announces the
+ring to Urmet's servers as `f1 f9`, and a MikroTik can mirror that to us. That
+turns an unreachable cloud push into a local event.
 
 On the MikroTik - filtered to control traffic only, so this is a trickle:
 
@@ -16,11 +16,9 @@ Then here:
 
     python3 tools/urmet_tzsp.py --device-ip 10.0.50.6
 
-Ring the bell and watch which message type appears. Then run it again for a few
-minutes WITHOUT ringing: anything that shows up in both is periodic
-re-registration, not a ring. That control run is the whole point - `f1 12` looks
-like a plausible ring but sits in PPPP's device-login family, which fires on a
-timer regardless.
+The ring is `f1 f9`, confirmed against a 109s capture containing exactly one
+ring: it appeared once and never again, while `f1 12` fired every ~33s
+throughout. This tool highlights the former and counts the latter.
 """
 
 from __future__ import annotations
@@ -40,7 +38,7 @@ MSG_NAMES = {
     0x01: "HELLO_ACK",
     0x10: "DEV_LGN",
     0x11: "DEV_LGN_ACK",
-    0x12: "DEV_LGN_CRC (ring candidate)",
+    0x12: "DEV_LGN_CRC (periodic, ~33s)",
     0x13: "DEV_LGN_CRC_ACK",
     0x20: "P2P_REQ (lookup)",
     0x21: "P2P_REQ_ACK",
@@ -53,7 +51,19 @@ MSG_NAMES = {
     0xE0: "ALIVE (ping)",
     0xE1: "ALIVE_ACK",
     0xF0: "CLOSE",
+    0xF9: "*** DOORBELL RING ***",
 }
+
+#: Confirmed from a 109s capture containing exactly one ring: the device sends
+#: this to all three cloud servers once, and never again. It then rotates its
+#: registration port and re-registers rapidly, which is how the cloud learns
+#: where to send the incoming call.
+MSG_RING = 0xF9
+
+#: Periodic device registration, roughly every 33s. It looks event-shaped in a
+#: short capture, which is exactly why it must NOT be used as a ring trigger -
+#: it would fire the doorbell twice a minute, forever.
+MSG_REGISTER = 0x12
 
 
 def strip_tzsp(data: bytes) -> bytes | None:
@@ -109,6 +119,8 @@ class Sniffer(asyncio.DatagramProtocol):
         self.quiet = quiet
         self.start = time.monotonic()
         self.counts: dict[int, int] = {}
+        self.rings = 0
+        self.last_register_port: int | None = None
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         frame = strip_tzsp(data)
@@ -135,6 +147,19 @@ class Sniffer(asyncio.DatagramProtocol):
             flush=True,
         )
 
+        if msg_type == MSG_RING:
+            self.rings += 1
+            print(
+                "\n" + "=" * 62
+                + f"\n  DOORBELL RING #{self.rings}  ({time.strftime('%H:%M:%S')})\n"
+                + "=" * 62 + "\n",
+                flush=True,
+            )
+        elif msg_type == MSG_REGISTER:
+            # The registration source port is the port the device will serve a
+            # session on - useful for port discovery, not for ring detection.
+            self.last_register_port = sport
+
 
 async def _run(args: argparse.Namespace) -> int:
     loop = asyncio.get_running_loop()
@@ -157,7 +182,9 @@ async def _run(args: argparse.Namespace) -> int:
     print("\nMessage type totals:")
     for msg_type, count in sorted(sniffer.counts.items()):
         print(f"  f1 {msg_type:02x} {MSG_NAMES.get(msg_type,'?'):<28} {count}")
-    print("\nCompare against a control run with no ring before concluding anything.")
+    print(f"\nRings detected: {sniffer.rings}")
+    if sniffer.last_register_port:
+        print(f"Last registration source port (= likely session port): {sniffer.last_register_port}")
     return 0
 
 

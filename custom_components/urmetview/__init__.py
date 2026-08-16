@@ -17,11 +17,14 @@ from .const import (
     ATTR_QUALITY,
     ATTR_STATION,
     CONF_AUTH_HASH,
+    CONF_DOORBELL_TZSP,
+    CONF_DOORBELL_TZSP_PORT,
     CONF_QUALITY,
     CONF_STREAM_IDLE_TIMEOUT,
     CONF_TALK_REPEAT,
     CONF_UID,
     DEFAULT_STREAM_IDLE_TIMEOUT,
+    DEFAULT_TZSP_PORT,
     DOMAIN,
     SERVICE_OPEN_GATE,
     SERVICE_OPEN_LOCK,
@@ -39,6 +42,7 @@ PLATFORMS = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
     Platform.CAMERA,
+    Platform.EVENT,
     Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
@@ -65,6 +69,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             CONF_STREAM_IDLE_TIMEOUT, DEFAULT_STREAM_IDLE_TIMEOUT
         ),
         talk_repeat=entry.options.get(CONF_TALK_REPEAT, DEFAULT_TALK_REPEAT),
+        doorbell_mirror=entry.options.get(CONF_DOORBELL_TZSP, False),
+        doorbell_port=entry.options.get(CONF_DOORBELL_TZSP_PORT, DEFAULT_TZSP_PORT),
     )
 
     try:
