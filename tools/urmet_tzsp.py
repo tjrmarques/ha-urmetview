@@ -2,15 +2,22 @@
 """Local doorbell trigger, by mirroring the device's cloud traffic.
 
 The ring is a cloud push to registered smartphones - nothing is sent on the LAN,
-so Home Assistant cannot receive it directly. But the *device* announces the
-ring to Urmet's servers as `f1 f9`, and a MikroTik can mirror that to us. That
-turns an unreachable cloud push into a local event.
+so Home Assistant cannot receive it directly. But the device opens a TCP
+connection to port 32002 on its push servers the instant the button is pressed,
+and a router can mirror that to us. That turns an unreachable cloud push into a
+local event.
 
-On the MikroTik - filtered to control traffic only, so this is a trickle:
+On the MikroTik, as a firewall rule (persists across reboots, one packet per
+ring):
 
-    /tool sniffer set filter-ip-address=<device-ip>/32 \\
-        filter-stream=yes streaming-enabled=yes streaming-server=<this-host>:37008
-    /tool sniffer start
+    /ip firewall mangle
+    add chain=prerouting action=sniff-tzsp \\
+        protocol=tcp dst-port=32002 src-address=<device-ip> \\
+        connection-state=new \\
+        sniff-target=<this-host> sniff-target-port=37008
+
+To watch everything instead while investigating, widen it by dropping the
+protocol/port/connection-state matchers - but expect video to come with it.
 
 Then here:
 

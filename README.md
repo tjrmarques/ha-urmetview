@@ -143,18 +143,42 @@ Two decoys worth naming, since both look convincing in a single short capture:
 
 ### Enabling it
 
-Mirror the device's traffic to Home Assistant. On MikroTik — note there is
-deliberately **no port filter**, since the ring is TCP/32002:
+The router mirrors that one connection to Home Assistant. On MikroTik this is a
+**firewall mangle rule**, not `/tool sniffer` — a rule is part of the config so
+it survives reboots, and `connection-state=new` narrows it to a single packet
+per ring:
 
 ```
-/tool sniffer set filter-ip-address=<device-ip>/32 \
-    filter-stream=yes streaming-enabled=yes streaming-server=<ha-ip>:37008
-/tool sniffer start
+/ip firewall mangle
+add chain=prerouting action=sniff-tzsp \
+    protocol=tcp dst-port=32002 src-address=<device-ip> \
+    connection-state=new \
+    sniff-target=<ha-ip> sniff-target-port=37008 \
+    comment="UrmetView doorbell"
 ```
 
-Then turn on **Doorbell via router mirror** in the integration options.
-`tools/urmet_tzsp.py` lets you verify the mirror first — it prints a banner on
-each ring.
+Then turn on **Doorbell via router mirror** in the integration options and point
+it at port 37008.
+
+Verify before trusting it — `tools/urmet_tzsp.py --device-ip <device-ip>` prints
+a banner on each ring.
+
+**Optionally**, a second rule feeds the integration the device's current session
+port for free, removing the cloud lookup on reconnect:
+
+```
+add chain=prerouting action=sniff-tzsp \
+    protocol=udp dst-port=32100 src-address=<device-ip> \
+    sniff-target=<ha-ip> sniff-target-port=37008 \
+    comment="UrmetView port discovery"
+```
+
+`/tool sniffer` works too, but it is a diagnostic: it stops on reboot, and
+without a tight filter it mirrors the video stream at ~300 KB/s.
+
+**Other routers:** anything that can do TZSP or port-mirroring to the HA host
+will work. If yours cannot, a dry contact on the indoor unit's chime line
+driving an automation is simpler and more reliable than any of this.
 
 This is off by default because it needs a router that can mirror. Without it the
 `event.doorbell` entity still exists and can be fired by an automation from any

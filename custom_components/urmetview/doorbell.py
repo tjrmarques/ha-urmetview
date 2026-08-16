@@ -27,18 +27,24 @@ Two decoys, both of which an earlier revision of this file fell for:
   Triggering on it gives a doorbell that is 22 seconds late.
 * ``f1 12`` fires every ~33 seconds forever - periodic registration.
 
-Set up on a MikroTik. Note the filter must NOT be restricted to port 32100 -
-the ring is TCP/32002:
+Set up on a MikroTik as a firewall rule, not with ``/tool sniffer``. A mangle
+rule with ``action=sniff-tzsp`` is part of the router's configuration, so it
+survives reboots, and ``connection-state=new`` narrows it to a single packet
+per ring:
 
-    /tool sniffer set filter-ip-address=<device-ip>/32 \\
-        filter-stream=yes streaming-enabled=yes streaming-server=<ha-ip>:37008
-    /tool sniffer start
+    /ip firewall mangle
+    add chain=prerouting action=sniff-tzsp \\
+        protocol=tcp dst-port=32002 src-address=<device-ip> \\
+        connection-state=new \\
+        sniff-target=<ha-ip> sniff-target-port=37008 \\
+        comment="UrmetView doorbell"
+
+``/tool sniffer`` also works but is a diagnostic tool: it does not persist
+across reboots, and without a tight filter it will mirror the video stream at
+~300 KB/s.
 
 This is optional and off by default: it needs a router that can mirror, so it
 cannot be a requirement for using the integration.
-
-**Still to confirm:** one capture, one ring. A capture with two rings at known
-times would prove both the trigger and the ~22s ``f1 f9`` offset.
 """
 
 from __future__ import annotations
