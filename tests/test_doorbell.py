@@ -1,9 +1,14 @@
-"""Doorbell detection tests, built on the real ring packet from urmet5.
+"""Doorbell detection tests, grounded in the urmet5 capture.
 
-The ring bytes below were captured from the device at the moment the bell was
-pressed. The distinction these tests protect is the one that matters: `f1 f9`
-is the ring, `f1 12` is periodic registration every ~33s. Confusing the two
-would fire the doorbell twice a minute forever.
+That capture contained exactly one ring, at a known time, and three candidate
+signals. These tests pin down which is which:
+
+* TCP SYN to port 32002 - at the button press. The trigger.
+* `f1 f9` - 22s later, the call going unanswered. Must NOT fire.
+* `f1 12` - every ~33s forever. Must NOT fire.
+
+The last two are the traps: both look event-shaped, and an earlier revision
+triggered on `f1 f9`, which would have made the doorbell 22 seconds late.
 """
 
 from __future__ import annotations
@@ -16,18 +21,20 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "urmetview"))
 
 from doorbell import (  # noqa: E402
+    PUSH_PORT,
     RING_DEBOUNCE,
     DoorbellListener,
-    parse_udp,
+    parse_packet,
     strip_tzsp,
 )
 
 DEVICE_IP = "10.0.50.6"
 CLOUD_IP = "35.181.124.200"
 
-# First 40 bytes of the real ring packet, zero-padded to its captured length of
-# 88. Only the first two bytes are parsed; the rest is opaque/encrypted.
-RING_PAYLOAD = bytes.fromhex(
+PUSH_SERVER = "54.84.37.235"
+
+# The f1 f9 message, captured 22s AFTER the button press.
+UNANSWERED_PAYLOAD = bytes.fromhex(
     "f1f90054" "15fd19a0d1e84208793c4d3aef6f126bb33d84752ff672b2c582cbd8eab85a28b72731 11"
     .replace(" ", "")
 ).ljust(88, b"\x00")
@@ -38,19 +45,42 @@ REGISTER_PAYLOAD = bytes.fromhex(
 ).ljust(48, b"\x00")
 
 
-def build_frame(payload: bytes, src: str = DEVICE_IP, dport: int = 32100, sport: int = 11451) -> bytes:
-    """Wrap a payload in Ethernet/IPv4/UDP, the way the mirror delivers it."""
-    udp = struct.pack(">HHHH", sport, dport, 8 + len(payload), 0) + payload
+def _ip_frame(proto: int, body: bytes, src: str, dst: str) -> bytes:
     ip = (
         bytes([0x45, 0x00])
-        + struct.pack(">H", 20 + len(udp))
+        + struct.pack(">H", 20 + len(body))
         + b"\x00\x00\x00\x00\x40"
-        + bytes([socket.IPPROTO_UDP])
+        + bytes([proto])
         + b"\x00\x00"
         + bytes(int(o) for o in src.split("."))
-        + bytes(int(o) for o in CLOUD_IP.split("."))
+        + bytes(int(o) for o in dst.split("."))
     )
-    return b"\xff" * 6 + b"\x11" * 6 + b"\x08\x00" + ip + udp
+    return b"\xff" * 6 + b"\x11" * 6 + b"\x08\x00" + ip + body
+
+
+def build_frame(
+    payload: bytes, src: str = DEVICE_IP, dport: int = 32100, sport: int = 11451
+) -> bytes:
+    """Wrap a payload in Ethernet/IPv4/UDP, the way the mirror delivers it."""
+    udp = struct.pack(">HHHH", sport, dport, 8 + len(payload), 0) + payload
+    return _ip_frame(socket.IPPROTO_UDP, udp, src, CLOUD_IP)
+
+
+def build_tcp(
+    dport: int = PUSH_PORT,
+    flags: int = 0x02,
+    src: str = DEVICE_IP,
+    dst: str = PUSH_SERVER,
+    sport: int = 46548,
+) -> bytes:
+    """A TCP segment; default is the SYN that opens the push connection."""
+    tcp = (
+        struct.pack(">HH", sport, dport)
+        + b"\x00" * 8
+        + bytes([0x50, flags])
+        + b"\x00" * 6
+    )
+    return _ip_frame(socket.IPPROTO_TCP, tcp, src, dst)
 
 
 def build_tzsp(frame: bytes) -> bytes:
@@ -72,28 +102,56 @@ class _Harness:
             build_tzsp(build_frame(payload, **kwargs)), ("10.0.0.1", 37008)
         )
 
+    def feed_tcp(self, **kwargs) -> None:
+        self.listener.datagram_received(
+            build_tzsp(build_tcp(**kwargs)), ("10.0.0.1", 37008)
+        )
+
 
 def test_tzsp_header_is_stripped():
-    frame = build_frame(RING_PAYLOAD)
+    frame = build_frame(UNANSWERED_PAYLOAD)
     assert strip_tzsp(build_tzsp(frame)) == frame
     assert strip_tzsp(b"") is None
     assert strip_tzsp(b"\x99\x00\x00\x01\x01") is None  # wrong version
 
 
 def test_udp_parsing_recovers_the_payload():
-    parsed = parse_udp(build_frame(RING_PAYLOAD))
-    assert parsed is not None
-    src, sport, _dst, dport, payload = parsed
-    assert src == DEVICE_IP
-    assert sport == 11451
-    assert dport == 32100
-    assert payload == RING_PAYLOAD
+    packet = parse_packet(build_frame(UNANSWERED_PAYLOAD))
+    assert packet is not None
+    assert packet.src == DEVICE_IP
+    assert packet.sport == 11451
+    assert packet.dport == 32100
+    assert packet.payload == UNANSWERED_PAYLOAD
 
 
-def test_the_real_ring_packet_fires_the_doorbell():
+def test_tcp_parsing_reads_flags():
+    syn = parse_packet(build_tcp(flags=0x02))
+    assert syn is not None and syn.is_syn
+    # An established connection is not a new ring.
+    assert not parse_packet(build_tcp(flags=0x12)).is_syn
+    assert not parse_packet(build_tcp(flags=0x10)).is_syn
+
+
+def test_the_push_connection_fires_the_doorbell():
+    """The real trigger: a SYN to the push service, at the button press."""
     harness = _Harness()
-    harness.feed(RING_PAYLOAD)
+    harness.feed_tcp()
     assert harness.rings == 1
+
+
+def test_the_unanswered_message_does_not_fire():
+    """f1 f9 lands 22s after the press - as a doorbell it would be useless."""
+    harness = _Harness()
+    harness.feed(UNANSWERED_PAYLOAD)
+    assert harness.rings == 0
+    assert harness.listener.unanswered == 1
+
+
+def test_other_tcp_destinations_are_ignored():
+    harness = _Harness()
+    harness.feed_tcp(dport=443)
+    harness.feed_tcp(dport=80)
+    assert harness.rings == 0
 
 
 def test_registration_never_fires_the_doorbell():
@@ -110,33 +168,28 @@ def test_registration_port_is_captured_for_discovery():
     assert harness.ports == [10492]
 
 
-def test_retransmissions_collapse_into_one_ring():
-    """The ring goes to three servers and is retransmitted - ~9 packets."""
+def test_both_push_servers_collapse_into_one_ring():
+    """The device connects to two providers at once - that is one ring."""
     harness = _Harness()
-    for _ in range(9):
-        harness.feed(RING_PAYLOAD)
+    harness.feed_tcp(dst="54.84.37.235")
+    harness.feed_tcp(dst="139.59.110.98")
+    for _ in range(5):  # SYN retransmits
+        harness.feed_tcp()
     assert harness.rings == 1
 
 
 def test_a_later_ring_is_reported_again():
     harness = _Harness()
-    harness.feed(RING_PAYLOAD)
+    harness.feed_tcp()
     # Move the debounce window into the past rather than sleeping.
     harness.listener._last_ring -= RING_DEBOUNCE + 1
-    harness.feed(RING_PAYLOAD)
+    harness.feed_tcp()
     assert harness.rings == 2
 
 
 def test_traffic_from_other_hosts_is_ignored():
     harness = _Harness()
-    harness.feed(RING_PAYLOAD, src="10.0.20.113")
-    assert harness.rings == 0
-
-
-def test_non_cloud_traffic_is_ignored():
-    """Only device->cloud control traffic can carry a ring."""
-    harness = _Harness()
-    harness.feed(RING_PAYLOAD, dport=1234)
+    harness.feed_tcp(src="10.0.20.113")
     assert harness.rings == 0
 
 
@@ -154,7 +207,7 @@ def test_callback_errors_do_not_kill_the_listener():
         raise RuntimeError("entity exploded")
 
     listener = DoorbellListener(DEVICE_IP, boom)
-    listener.datagram_received(build_tzsp(build_frame(RING_PAYLOAD)), ("10.0.0.1", 37008))
+    listener.datagram_received(build_tzsp(build_tcp()), ("10.0.0.1", 37008))
     assert listener.rings == 1  # counted, and no exception escaped
 
 

@@ -8,7 +8,7 @@ turns an unreachable cloud push into a local event.
 
 On the MikroTik - filtered to control traffic only, so this is a trickle:
 
-    /tool sniffer set filter-ip-address=<device-ip>/32 filter-port=32100 \\
+    /tool sniffer set filter-ip-address=<device-ip>/32 \\
         filter-stream=yes streaming-enabled=yes streaming-server=<this-host>:37008
     /tool sniffer start
 
@@ -16,9 +16,12 @@ Then here:
 
     python3 tools/urmet_tzsp.py --device-ip 10.0.50.6
 
-The ring is `f1 f9`, confirmed against a 109s capture containing exactly one
-ring: it appeared once and never again, while `f1 12` fired every ~33s
-throughout. This tool highlights the former and counts the latter.
+The ring is a TCP connection to port 32002 on the push servers, made the
+instant the button is pressed. Note the sniffer filter must NOT be limited to
+port 32100, or you will miss it.
+
+Two decoys, both seen once in the same capture: `f1 f9` arrives 22s later (the
+call going unanswered) and `f1 12` every ~33s (registration).
 """
 
 from __future__ import annotations
@@ -51,14 +54,13 @@ MSG_NAMES = {
     0xE0: "ALIVE (ping)",
     0xE1: "ALIVE_ACK",
     0xF0: "CLOSE",
-    0xF9: "*** DOORBELL RING ***",
+    0xF9: "call unanswered (~22s after ring)",
 }
 
-#: Confirmed from a 109s capture containing exactly one ring: the device sends
-#: this to all three cloud servers once, and never again. It then rotates its
-#: registration port and re-registers rapidly, which is how the cloud learns
-#: where to send the incoming call.
-MSG_RING = 0xF9
+PUSH_PORT = 32002
+
+#: Sent once, ~22s after the button press - the call timing out, not starting.
+MSG_UNANSWERED = 0xF9
 
 #: Periodic device registration, roughly every 33s. It looks event-shaped in a
 #: short capture, which is exactly why it must NOT be used as a ring trigger -
@@ -88,8 +90,8 @@ def strip_tzsp(data: bytes) -> bytes | None:
     return None
 
 
-def parse_udp(frame: bytes) -> tuple[str, int, str, int, bytes] | None:
-    """Pull src/dst and payload out of an Ethernet frame carrying IPv4/UDP."""
+def parse_udp(frame: bytes):
+    """Pull addresses, payload, protocol and TCP flags out of a frame."""
     if len(frame) < 14:
         return None
     ethertype = struct.unpack(">H", frame[12:14])[0]
@@ -101,16 +103,22 @@ def parse_udp(frame: bytes) -> tuple[str, int, str, int, bytes] | None:
         offset = 18
     if ethertype != 0x0800 or len(frame) < offset + 20:
         return None
-    if (frame[offset] >> 4) != 4 or frame[offset + 9] != socket.IPPROTO_UDP:
+    proto = frame[offset + 9]
+    if (frame[offset] >> 4) != 4 or proto not in (socket.IPPROTO_UDP, socket.IPPROTO_TCP):
         return None
     ihl = (frame[offset] & 0x0F) * 4
     src = ".".join(str(b) for b in frame[offset + 12 : offset + 16])
     dst = ".".join(str(b) for b in frame[offset + 16 : offset + 20])
-    udp = offset + ihl
-    if len(frame) < udp + 8:
+    head = offset + ihl
+    if len(frame) < head + 14:
         return None
-    sport, dport, length = struct.unpack(">HHH", frame[udp : udp + 6])
-    return src, sport, dst, dport, frame[udp + 8 : udp + 8 + max(0, length - 8)]
+    sport, dport = struct.unpack(">HH", frame[head : head + 4])
+    if proto == socket.IPPROTO_UDP:
+        length = struct.unpack(">H", frame[head + 4 : head + 6])[0]
+        payload = frame[head + 8 : head + 8 + max(0, length - 8)]
+        return src, sport, dst, dport, payload, proto, 0
+    doff = (frame[head + 12] >> 4) * 4
+    return src, sport, dst, dport, frame[head + doff :], proto, frame[head + 13]
 
 
 class Sniffer(asyncio.DatagramProtocol):
@@ -129,9 +137,23 @@ class Sniffer(asyncio.DatagramProtocol):
         parsed = parse_udp(frame)
         if parsed is None:
             return
-        src, sport, dst, dport, payload = parsed
+        src, sport, dst, dport, payload, proto, flags = parsed
         if self.device_ip and self.device_ip not in (src, dst):
             return
+
+        if proto == socket.IPPROTO_TCP:
+            # The ring: a fresh connection to the push service.
+            if dport == PUSH_PORT and flags & 0x02 and not flags & 0x10:
+                self.rings += 1
+                print(
+                    "\n" + "=" * 62
+                    + f"\n  DOORBELL RING #{self.rings}  ({time.strftime('%H:%M:%S')})"
+                    + f"\n  {src} -> {dst}:{dport}\n"
+                    + "=" * 62 + "\n",
+                    flush=True,
+                )
+            return
+
         if len(payload) < 2 or payload[0] != 0xF1:
             return
 
@@ -147,15 +169,7 @@ class Sniffer(asyncio.DatagramProtocol):
             flush=True,
         )
 
-        if msg_type == MSG_RING:
-            self.rings += 1
-            print(
-                "\n" + "=" * 62
-                + f"\n  DOORBELL RING #{self.rings}  ({time.strftime('%H:%M:%S')})\n"
-                + "=" * 62 + "\n",
-                flush=True,
-            )
-        elif msg_type == MSG_REGISTER:
+        if msg_type == MSG_REGISTER:
             # The registration source port is the port the device will serve a
             # session on - useful for port discovery, not for ring detection.
             self.last_register_port = sport

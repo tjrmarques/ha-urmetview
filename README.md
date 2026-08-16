@@ -21,7 +21,7 @@ video, the door lock and the gate work locally without the vendor app.
 | Switching between outdoor stations | Working |
 | Stream quality LD / SD / HD | Working (bitrate & frame rate, not resolution) |
 | Talk — audio *out* to the door station | Spike (`tools/urmet_talk.py`) |
-| Doorbell ring event | Solved — needs a router that can mirror, see [Doorbell](#doorbell) |
+| Doorbell ring event | Working, needs a router that can mirror — see [Doorbell](#doorbell) |
 
 ### Entities
 
@@ -121,34 +121,34 @@ describes the alert as a "Linkage push … to all smartphones associated with th
 WiFi module" — a cloud push to registered phones, which Home Assistant is not
 and cannot become.
 
-What the device *does* do is announce the ring to Urmet's rendezvous servers.
-A 109-second capture containing exactly one ring settled which message that is:
+What the device *does* do is reach out to the internet the instant the button
+is pressed. A 109-second capture containing exactly one ring, at a known time,
+separated three candidate signals:
 
-| Message | Behaviour | Meaning |
+| Signal | When | Meaning |
 |---|---|---|
-| `f1 f9` | **once**, to all three cloud servers, never repeated | **the ring** |
-| `f1 12` | every ~33s, all capture long | periodic registration |
+| **TCP to port 32002** on two push servers | **at the button press** | **the ring** |
+| `f1 f9` (UDP to the P2P servers) | 22 s later | call going unanswered |
+| `f1 12` | every ~33 s, forever | periodic registration |
 
-The device also rotates its registration port immediately after the ring and
-re-registers three times in quick succession — telling the cloud where to route
-the incoming call.
-
-`f1 12` is the trap here: in a short capture it looks event-shaped, and using it
-would fire your doorbell twice a minute forever.
+The last two are traps — both appear exactly once in a short capture and look
+event-shaped. Triggering on `f1 f9` gives a doorbell that is 22 seconds late;
+triggering on `f1 12` gives one that rings twice a minute forever.
 
 ### Enabling it
 
-Mirror the device's cloud-bound control traffic to Home Assistant. On MikroTik:
+Mirror the device's traffic to Home Assistant. On MikroTik — note there is
+deliberately **no port filter**, since the ring is TCP/32002:
 
 ```
-/tool sniffer set filter-ip-address=<device-ip>/32 filter-port=32100 \
+/tool sniffer set filter-ip-address=<device-ip>/32 \
     filter-stream=yes streaming-enabled=yes streaming-server=<ha-ip>:37008
 /tool sniffer start
 ```
 
-Then turn on **Doorbell via router mirror** in the integration options. Filtered
-this way it is a trickle of traffic, not media. `tools/urmet_tzsp.py` lets you
-verify the mirror before enabling it.
+Then turn on **Doorbell via router mirror** in the integration options.
+`tools/urmet_tzsp.py` lets you verify the mirror first — it prints a banner on
+each ring.
 
 This is off by default because it needs a router that can mirror. Without it the
 `event.doorbell` entity still exists and can be fired by an automation from any
