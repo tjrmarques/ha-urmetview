@@ -1,0 +1,13 @@
+{
+  "domain": "urmetview",
+  "name": "Urmet UrmetView Intercom",
+  "codeowners": ["@tjrmarques"],
+  "config_flow": true,
+  "dependencies": ["ffmpeg"],
+  "documentation": "https://github.com/tjrmarques/ha-urmetview",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/tjrmarques/ha-urmetview/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

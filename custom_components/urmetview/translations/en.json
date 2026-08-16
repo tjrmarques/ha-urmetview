@@ -1,0 +1,61 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Urmet intercom",
+        "description": "The auth hash is captured once from a real app login - it cannot be derived from the device password. See the README for how to get it. Host and port are optional; leave them blank to discover the device automatically.",
+        "data": {
+          "uid": "Device UID",
+          "auth_hash": "Auth hash",
+          "host": "Host (optional)",
+          "port": "Session port (optional)",
+          "username": "Username"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the intercom. Check it is powered on and on the same network.",
+      "invalid_auth": "The device rejected this auth hash.",
+      "invalid_auth_format": "The auth hash must be 32 hexadecimal characters.",
+      "invalid_uid": "The UID should look like URMABB-700171-SMCYN."
+    },
+    "abort": {
+      "already_configured": "This intercom is already set up."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Options",
+        "data": {
+          "quality": "Default stream quality",
+          "stream_idle_timeout": "Release video after (seconds with no viewers)",
+          "talk_repeat": "Talk frame retransmissions"
+        },
+        "data_description": {
+          "stream_idle_timeout": "The video channel is released when nobody is watching, so the phone app can use it.",
+          "talk_repeat": "Higher is more robust on a lossy network but uses more bandwidth. The official app sends about 12."
+        }
+      }
+    }
+  },
+  "services": {
+    "open_lock": { "name": "Release door lock", "description": "Release the door lock on the active outdoor station." },
+    "open_gate": { "name": "Release gate", "description": "Release the gate on the active outdoor station." },
+    "select_station": {
+      "name": "Select outdoor station",
+      "description": "Switch the camera to a specific outdoor station.",
+      "fields": { "station": { "name": "Station", "description": "Which outdoor station to show." } }
+    },
+    "set_quality": {
+      "name": "Set stream quality",
+      "description": "Change bitrate and frame rate. Resolution is always 960x240.",
+      "fields": { "quality": { "name": "Quality", "description": "Quality preset." } }
+    },
+    "talk": {
+      "name": "Speak at the door station",
+      "description": "Play audio through the outdoor station's speaker.",
+      "fields": { "media": { "name": "Media", "description": "Path or URL of the audio to play." } }
+    }
+  }
+}

@@ -8,9 +8,8 @@ The device has no local API. This talks its native UDP protocol directly, so
 video, the door lock and the gate work locally without the vendor app.
 
 > **Status: early development.** The protocol is reverse-engineered and verified
-> against real hardware, and the standalone scripts in `tools/` work today. The
-> Home Assistant integration itself is being built on top of them — see
-> [Project status](#project-status).
+> against real hardware. The standalone scripts in `tools/` are proven; the
+> integration is written but has not yet run inside a live Home Assistant.
 
 ## What works
 
@@ -23,6 +22,30 @@ video, the door lock and the gate work locally without the vendor app.
 | Stream quality LD / SD / HD | Working (bitrate & frame rate, not resolution) |
 | Talk — audio *out* to the door station | Spike (`tools/urmet_talk.py`) |
 | Doorbell ring event | **Unresolved** — see [Doorbell](#doorbell) |
+
+### Entities
+
+| Entity | Notes |
+|---|---|
+| `camera.outdoor_station` | Live video + audio, via go2rtc/WebRTC |
+| `select.outdoor_station` | Reports *and* switches the active station |
+| `select.stream_quality` | LD / SD / HD |
+| `button.door_lock_release` | The key symbol — acts on the active station |
+| `button.gate_release` | Gate/driveway — acts on the active station |
+| `switch.talk` | Holds the outbound audio channel open |
+| `binary_sensor.session` | Whether we hold a session |
+| `sensor.video_channel` | `idle` / `streaming`, with consumer and frame counts |
+
+Services: `urmetview.open_lock`, `open_gate`, `select_station`, `set_quality`,
+and `talk` (plays any ffmpeg-readable audio or TTS at the door).
+
+## Installing
+
+**HACS** → Custom repositories → add this repo as an *Integration* → install →
+restart → *Settings → Devices & Services → Add Integration → Urmet*.
+
+You will be asked for the device UID and the auth hash from step 1 below. Host
+and port are optional; leave them blank to auto-discover.
 
 ## Getting started
 

@@ -1,0 +1,69 @@
+open_lock:
+  name: Release door lock
+  description: >-
+    Release the door lock on the currently selected outdoor station. Switch
+    stations first if you need the other door.
+  target:
+    device:
+      integration: urmetview
+
+open_gate:
+  name: Release gate
+  description: >-
+    Release the gate on the currently selected outdoor station.
+  target:
+    device:
+      integration: urmetview
+
+select_station:
+  name: Select outdoor station
+  description: Switch the camera to a specific outdoor station.
+  target:
+    device:
+      integration: urmetview
+  fields:
+    station:
+      name: Station
+      description: Which outdoor station to show.
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 2
+          mode: box
+
+set_quality:
+  name: Set stream quality
+  description: >-
+    Change the stream quality. This affects bitrate and frame rate only - the
+    resolution is 960x240 in every mode.
+  target:
+    device:
+      integration: urmetview
+  fields:
+    quality:
+      name: Quality
+      description: Quality preset.
+      required: true
+      example: sd
+      selector:
+        select:
+          options: [ld, sd, hd]
+
+talk:
+  name: Speak at the door station
+  description: >-
+    Play audio through the outdoor station's speaker. Accepts anything ffmpeg
+    can read, including a TTS-generated file or a media URL.
+  target:
+    device:
+      integration: urmetview
+  fields:
+    media:
+      name: Media
+      description: Path or URL of the audio to play.
+      required: true
+      example: /media/announcements/back-in-5.mp3
+      selector:
+        text:

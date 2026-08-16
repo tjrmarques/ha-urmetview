@@ -48,6 +48,10 @@ MARKER_AUDIO_OUT = b"\xa7\x01\x00\xff"
 MEDIA_HEADER_LEN = 32  # marker + 28 bytes of frame info, mostly unmapped
 AUDIO_OUT_HEADER_LEN = 76  # marker + constant + length + 64 bytes padding
 
+#: 40ms of 8kHz mono mu-law. Defined here rather than imported from const so
+#: this module stays self-contained; const re-exports the same value.
+AUDIO_FRAME_BYTES = 320
+
 STREAM_VIDEO_KEYFRAME = 0x01
 STREAM_VIDEO_PFRAME = 0x02
 STREAM_AUDIO = 0x08
