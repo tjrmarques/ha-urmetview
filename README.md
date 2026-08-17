@@ -219,10 +219,12 @@ deploying it:
   it once can open your door until the device password is changed.
 * The push notification the device sends on every ring is **not TLS** — the
   server speaks first, there is no TLS record header anywhere, and the message
-  lengths are byte-identical across sessions. It is a proprietary scheme whose
-  obfuscation looks weak (repeated ciphertext prefixes within a single
-  session). Every ring, and whatever device identity accompanies it, crosses
-  the public internet without transport security.
+  lengths are byte-identical across sessions. It is a proprietary protocol.
+  The bodies do appear properly encrypted (7.6 bits/byte entropy, no repeating
+  key at any length 1–32, no keystream reuse between messages), so this is not
+  trivially readable — but it is also not TLS, so it carries none of TLS's
+  certificate validation or forward secrecy, and every ring crosses the public
+  internet under a scheme nobody outside the vendor has reviewed.
 
 Put the intercom on an isolated VLAN. Treat the auth hash exactly like a
 password. Scrub captures before sharing them.

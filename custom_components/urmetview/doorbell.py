@@ -22,8 +22,25 @@ all port 32002 - so matching on it cannot collide with anything else.
 
 The exchange is **not TLS**: the server speaks first, there is no TLS record
 header, and the message lengths (16, 64, 16, 240, 177, 16, 94) are identical
-across sessions. It is a proprietary obfuscated protocol. We never decode it -
-the SYN is both earlier and more reliable than anything inside.
+across sessions - a fixed application protocol, not a negotiated handshake.
+
+Its shape is legible even though its contents are not:
+
+    msg0  SRV  16B   nonce / challenge
+    msg1  DEV  64B   auth response
+    msg2  SRV  16B   session established, assigns a server-side token
+    msg3  DEV 240B   payload, carries a device-side token
+    msg4  DEV 177B   payload
+    msg5  SRV  16B   ack
+    msg6  SRV  94B   result - carries BOTH tokens, so it correlates the two
+
+The bodies resist casual analysis: 7.6 bits/byte entropy, no repeating-key XOR
+at any length 1-32, and no keystream reuse between the two device messages.
+The repeated 2-3 byte prefixes are per-session tokens in a header, not a cipher
+weakness - they appear only from msg2 onward, once the session exists.
+
+We never decode any of it. The SYN is earlier, simpler, and survives a key
+rotation that would break any payload-based detection.
 
 Two decoys, both of which an earlier revision of this file fell for:
 
