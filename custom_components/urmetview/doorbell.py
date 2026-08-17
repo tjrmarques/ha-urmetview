@@ -20,6 +20,11 @@ urmet5       +13.552s            +35.3s
 It is also the *only* TCP the device ever makes - 75-78 packets per capture,
 all port 32002 - so matching on it cannot collide with anything else.
 
+The exchange is **not TLS**: the server speaks first, there is no TLS record
+header, and the message lengths (16, 64, 16, 240, 177, 16, 94) are identical
+across sessions. It is a proprietary obfuscated protocol. We never decode it -
+the SYN is both earlier and more reliable than anything inside.
+
 Two decoys, both of which an earlier revision of this file fell for:
 
 * ``f1 f9`` appears only in urmet5, 22s after the press, and is absent from
