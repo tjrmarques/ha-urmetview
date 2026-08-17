@@ -172,7 +172,12 @@ def test_registration_port_is_captured_for_discovery():
 
 
 def test_both_push_servers_collapse_into_one_ring():
-    """The device connects to two providers at once - that is one ring."""
+    """One ring = two SYNs.
+
+    The device races two push providers, opening both connections in the same
+    millisecond and hanging up on whichever greets it second. Both SYNs are
+    always present, so both must fold into a single event.
+    """
     harness = _Harness()
     harness.feed_tcp(dst="54.84.37.235")
     harness.feed_tcp(dst="139.59.110.98")

@@ -78,8 +78,8 @@ PUSH_PORT = 32002
 TZSP_TAG_END = 0x01
 TZSP_TAG_PADDING = 0x00
 
-#: The ring is sent to three servers and retransmitted, so ~9 packets arrive
-#: within milliseconds. Collapse them into one event.
+#: One ring means two SYNs (the device races two push providers) plus any TCP
+#: retransmits, all within milliseconds. Collapse them into a single event.
 RING_DEBOUNCE = 10.0
 
 
@@ -196,7 +196,15 @@ class DoorbellListener(asyncio.DatagramProtocol):
             self._handle_udp(packet)
 
     def _handle_tcp(self, packet: Packet) -> None:
-        """The ring: a fresh connection to the push service."""
+        """The ring: a fresh connection to the push service.
+
+        Match the SYN, not the payload. The device races two push providers -
+        it opens both connections in the same millisecond, and transacts with
+        whichever greets it first, hanging up on the loser 2-3ms later without
+        sending a byte. Which one wins is decided by network latency and can
+        flip, so only the SYN is reliably present on both. It is also the
+        earliest possible signal: the full exchange takes ~0.9s after it.
+        """
         if packet.dport != PUSH_PORT or not packet.is_syn:
             return
         now = time.monotonic()
