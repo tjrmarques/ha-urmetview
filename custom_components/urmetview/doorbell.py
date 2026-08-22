@@ -20,6 +20,13 @@ urmet5       +13.552s            +35.3s
 It is also the *only* TCP the device ever makes - 75-78 packets per capture,
 all port 32002 - so matching on it cannot collide with anything else.
 
+All three captures caught the ring with **no client holding the video
+channel**. urmet4 looks like an exception because it contains media, but that
+stream ends at +4.1s, 3.5s before the ring - the app had already gone. So
+nothing here shows what the device does to a session that is live when the
+bell rings, and video being pull-only in all three is not proof it never
+pushes to an attached client. That case still needs a capture.
+
 The exchange is **not TLS**: the server speaks first, there is no TLS record
 header, and the message lengths (16, 64, 16, 240, 177, 16, 94) are identical
 across sessions - a fixed application protocol, not a negotiated handshake.

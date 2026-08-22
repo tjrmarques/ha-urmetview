@@ -409,6 +409,31 @@ class UrmetCoordinator:
                 await session.async_set_quality(quality)
         self._notify()
 
+    async def async_answer(self) -> None:
+        """Take the call in Home Assistant: hold video and open the mic path.
+
+        The device never pushes media on a ring - a client has to ask - so
+        nothing is grabbed until someone deliberately answers here. That is the
+        whole reason video is not held speculatively: the channel is single
+        occupancy, and while we have it the phone app cannot answer.
+        """
+        await self._async_start_video()
+        await self.async_talk_start()
+        self._mark_activity()
+        _LOGGER.debug("Call answered in Home Assistant")
+
+    async def async_hang_up(self) -> None:
+        """Release the call, and the channel, immediately.
+
+        Deliberately does not wait for the idle timer: the point of hanging up
+        is to hand the video channel back so the phone app can take over.
+        """
+        with contextlib.suppress(UrmetError):
+            await self.async_talk_stop()
+        with contextlib.suppress(UrmetError):
+            await self._async_stop_video()
+        _LOGGER.debug("Call released")
+
     async def async_talk_start(self) -> None:
         session = await self._async_with_video()
         async with self._command_lock:

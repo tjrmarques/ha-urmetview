@@ -60,6 +60,8 @@ SERVICE_OPEN_GATE: Final = "open_gate"
 SERVICE_SELECT_STATION: Final = "select_station"
 SERVICE_SET_QUALITY: Final = "set_quality"
 SERVICE_TALK: Final = "talk"
+SERVICE_ANSWER: Final = "answer"
+SERVICE_HANG_UP: Final = "hang_up"
 
 ATTR_STATION: Final = "station"
 ATTR_QUALITY: Final = "quality"

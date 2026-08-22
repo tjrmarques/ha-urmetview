@@ -38,7 +38,14 @@ video, the door lock and the gate work locally without the vendor app.
 | `sensor.video_channel` | `idle` / `streaming`, with consumer and frame counts |
 
 Services: `urmetview.open_lock`, `open_gate`, `select_station`, `set_quality`,
-and `talk` (plays any ffmpeg-readable audio or TTS at the door).
+`talk` (plays any ffmpeg-readable audio or TTS at the door), and
+`answer` / `hang_up`.
+
+**Answering a call.** The device never pushes media on a ring — video is
+pull-only — so nothing is grabbed until something asks. `answer` deliberately
+takes the video channel and opens the mic path; `hang_up` releases it again.
+That matters because the channel is single-occupancy: while Home Assistant
+holds it, the phone app cannot answer, and vice versa.
 
 ## Installing
 

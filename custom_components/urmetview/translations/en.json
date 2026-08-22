@@ -83,6 +83,14 @@
           "description": "Path or URL of the audio to play."
         }
       }
+    },
+    "answer": {
+      "name": "Answer the call",
+      "description": "Start video and open the talk channel. Holds the device's single video channel until you hang up."
+    },
+    "hang_up": {
+      "name": "Hang up",
+      "description": "Release the call and the video channel so the phone app can take over."
     }
   }
 }

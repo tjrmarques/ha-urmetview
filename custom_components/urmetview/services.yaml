@@ -67,3 +67,22 @@ talk:
       example: /media/announcements/back-in-5.mp3
       selector:
         text:
+
+answer:
+  name: Answer the call
+  description: >-
+    Take the call in Home Assistant: start video and open the talk channel.
+    While Home Assistant holds the call the phone app cannot answer, since the
+    device has only one video channel - use Hang up to hand it back.
+  target:
+    device:
+      integration: urmetview
+
+hang_up:
+  name: Hang up
+  description: >-
+    Release the call and the video channel immediately, so the phone app or
+    another client can take over.
+  target:
+    device:
+      integration: urmetview
