@@ -142,6 +142,16 @@ us-east-1 and DigitalOcean, versus `*.caycctv.com`'s AWS hosts — and the devic
 Match on the port, never on the address: a firmware update can move them with
 no DNS to follow.
 
+**The ring carries no video.** Captures taken with the app closed contain zero
+media packets — the device raises the push and then waits. Video is pull-only,
+so a picture of whoever is at the door does not exist until something asks for
+it, which costs ~1 s to start plus up to ~5 s for a keyframe.
+
+The **Start video when the bell rings** option pre-warms the stream so a
+snapshot is ready sooner. It is off by default because it seizes the device's
+single video channel exactly when your phone app wants it to answer the call —
+only enable it if Home Assistant has replaced the app for you.
+
 Two decoys worth naming, since both look convincing in a single short capture:
 
 * `f1 f9` appears only when a call goes **unanswered**, ~22 s late. Absent from

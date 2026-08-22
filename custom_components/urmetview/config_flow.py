@@ -28,6 +28,7 @@ from .const import (
     CONF_DOORBELL_TZSP,
     CONF_DOORBELL_TZSP_PORT,
     CONF_QUALITY,
+    CONF_RING_PREWARM,
     CONF_STREAM_IDLE_TIMEOUT,
     CONF_TALK_REPEAT,
     CONF_UID,
@@ -209,6 +210,10 @@ class UrmetOptionsFlow(OptionsFlow):
                     vol.Optional(
                         CONF_DOORBELL_TZSP,
                         default=options.get(CONF_DOORBELL_TZSP, False),
+                    ): bool,
+                    vol.Optional(
+                        CONF_RING_PREWARM,
+                        default=options.get(CONF_RING_PREWARM, False),
                     ): bool,
                     vol.Optional(
                         CONF_DOORBELL_TZSP_PORT,

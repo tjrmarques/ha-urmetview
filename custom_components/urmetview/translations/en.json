@@ -32,13 +32,15 @@
           "stream_idle_timeout": "Release video after (seconds with no viewers)",
           "talk_repeat": "Talk frame retransmissions",
           "doorbell_tzsp": "Doorbell via router mirror",
-          "doorbell_tzsp_port": "Mirror listen port"
+          "doorbell_tzsp_port": "Mirror listen port",
+          "ring_prewarm": "Start video when the bell rings"
         },
         "data_description": {
           "stream_idle_timeout": "The video channel is released when nobody is watching, so the phone app can use it.",
           "talk_repeat": "Higher is more robust on a lossy network but uses more bandwidth. The official app sends about 12.",
           "doorbell_tzsp": "The ring is a cloud push, so it never reaches Home Assistant directly. If your router can mirror the device's traffic here (MikroTik: stream to this host as TZSP), rings become a local event. Off by default.",
-          "doorbell_tzsp_port": "UDP port the mirror streams to. MikroTik's default is 37008."
+          "doorbell_tzsp_port": "UDP port the mirror streams to. MikroTik's default is 37008.",
+          "ring_prewarm": "The device does not send video on a ring - it must be pulled, which costs a few seconds. Enabling this starts the stream on each ring so a picture is ready sooner, but it takes the device's single video channel just as the phone app wants it to answer the call. Leave off if you still use the app."
         }
       }
     }

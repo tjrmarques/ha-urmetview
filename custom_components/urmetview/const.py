@@ -26,6 +26,7 @@ CONF_TALK_REPEAT: Final = "talk_repeat"
 CONF_STATION_COUNT: Final = "station_count"
 CONF_DOORBELL_TZSP: Final = "doorbell_tzsp"
 CONF_DOORBELL_TZSP_PORT: Final = "doorbell_tzsp_port"
+CONF_RING_PREWARM: Final = "ring_prewarm"
 
 PORT_STRATEGY_AUTO: Final = "auto"
 PORT_STRATEGY_CLOUD: Final = "cloud"

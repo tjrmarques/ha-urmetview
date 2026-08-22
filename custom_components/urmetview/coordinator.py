@@ -60,6 +60,7 @@ class UrmetCoordinator:
         talk_repeat: int = DEFAULT_TALK_REPEAT,
         doorbell_mirror: bool = False,
         doorbell_port: int = DEFAULT_TZSP_PORT,
+        ring_prewarm: bool = False,
     ) -> None:
         self.hass = hass
         self.entry_id = entry_id
@@ -73,6 +74,7 @@ class UrmetCoordinator:
         self.talk_repeat = talk_repeat
         self.doorbell_mirror = doorbell_mirror
         self.doorbell_port = doorbell_port
+        self.ring_prewarm = ring_prewarm
 
         self.session: UrmetSession | None = None
         self.pipeline = MediaPipeline(ffmpeg_binary)
@@ -136,6 +138,25 @@ class UrmetCoordinator:
         _LOGGER.debug("Doorbell rang")
         for callback_fn in self._doorbell_callbacks:
             callback_fn()
+        if self.ring_prewarm:
+            self.hass.async_create_task(self._async_prewarm())
+
+    async def _async_prewarm(self) -> None:
+        """Start the stream on a ring so a picture is ready sooner.
+
+        The device does not push video when the bell rings - captures with the
+        app closed contain no media at all. Video is pull-only, so a snapshot
+        of whoever is at the door does not exist until someone asks for it,
+        and then costs ~1s to start plus up to ~5s waiting for a keyframe.
+
+        Off by default, because it takes the device's single video channel at
+        exactly the moment the phone app wants it to answer the call. Only
+        worth enabling if Home Assistant has replaced the app for you.
+        """
+        try:
+            await self._async_start_video()
+        except UrmetError as err:
+            _LOGGER.debug("Ring pre-warm could not start video: %s", err)
 
     @callback
     def _note_register_port(self, port: int) -> None:

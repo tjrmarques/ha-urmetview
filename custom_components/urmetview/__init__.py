@@ -20,6 +20,7 @@ from .const import (
     CONF_DOORBELL_TZSP,
     CONF_DOORBELL_TZSP_PORT,
     CONF_QUALITY,
+    CONF_RING_PREWARM,
     CONF_STREAM_IDLE_TIMEOUT,
     CONF_TALK_REPEAT,
     CONF_UID,
@@ -71,6 +72,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         talk_repeat=entry.options.get(CONF_TALK_REPEAT, DEFAULT_TALK_REPEAT),
         doorbell_mirror=entry.options.get(CONF_DOORBELL_TZSP, False),
         doorbell_port=entry.options.get(CONF_DOORBELL_TZSP_PORT, DEFAULT_TZSP_PORT),
+        ring_prewarm=entry.options.get(CONF_RING_PREWARM, False),
     )
 
     try:
