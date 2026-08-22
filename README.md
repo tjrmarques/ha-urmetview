@@ -49,11 +49,55 @@ holds it, the phone app cannot answer, and vice versa.
 
 ## Installing
 
-**HACS** → Custom repositories → add this repo as an *Integration* → install →
-restart → *Settings → Devices & Services → Add Integration → Urmet*.
+### Manual (for testing — no HACS needed)
 
-You will be asked for the device UID and the auth hash from step 1 below. Host
-and port are optional; leave them blank to auto-discover.
+Copy **only** the `custom_components/urmetview/` folder into your Home Assistant
+config directory, so you end up with:
+
+```
+<config>/custom_components/urmetview/manifest.json
+<config>/custom_components/urmetview/urmet/protocol.py
+...
+```
+
+`<config>` is wherever `configuration.yaml` lives — `/config` on Home Assistant
+OS or in Docker, `~/.homeassistant` for a Core venv install. Get files in via
+the Samba, SSH or File Editor add-on, or `scp`/`docker cp`.
+
+Do not copy `tools/`, `tests/` or `docs/` — the integration is just that one
+folder, and the nested `urmet/` package must come with it.
+
+Then **fully restart Home Assistant** (a config reload will not pick up a new
+integration), and add it under *Settings → Devices & Services → Add Integration
+→ Urmet*.
+
+Turn on debug logging before the first start — this has not yet run inside a
+live Home Assistant, so the most likely failure is an import error, and it will
+be in the log rather than the UI:
+
+```yaml
+# configuration.yaml
+logger:
+  default: info
+  logs:
+    custom_components.urmetview: debug
+```
+
+Check *Settings → System → Logs*, or grep `home-assistant.log` for `urmetview`.
+
+### Via HACS
+
+Once the repo is published: **HACS** → Custom repositories → add the repo as an
+*Integration* → install → restart → add the integration as above.
+
+Either way you will be asked for the device UID and the auth hash (see below).
+Host and port are optional; leave them blank to auto-discover.
+
+### Updating a manual install
+
+Replace the folder and restart. Home Assistant caches compiled bytecode, so if
+a change seems not to apply, delete `custom_components/urmetview/__pycache__/`
+and restart again.
 
 ## Getting started
 
