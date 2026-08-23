@@ -61,15 +61,44 @@ config directory, so you end up with:
 ```
 
 `<config>` is wherever `configuration.yaml` lives — `/config` on Home Assistant
-OS or in Docker, `~/.homeassistant` for a Core venv install. Get files in via
-the Samba, SSH or File Editor add-on, or `scp`/`docker cp`.
+OS or in Docker, `~/.homeassistant` for a Core venv install.
+
+#### Home Assistant OS
+
+There is no shell by default, so use one of these. Either is fine; pick the one
+whose add-on you already have.
+
+**Terminal & SSH add-on** (fastest, if installed) — *Settings → Add-ons →
+Add-on Store → Terminal & SSH*, start it, open the Terminal tab:
+
+```bash
+mkdir -p /config/custom_components
+cd /config
+tar -xzf /config/urmetview-custom-component.tar.gz   # after uploading it here
+ls /config/custom_components/urmetview/manifest.json  # should exist
+```
+
+**Samba share add-on** (no command line) — install and start *Samba share*,
+then browse to `\\homeassistant\config` (Windows) or
+`smb://homeassistant.local/config` (macOS/Linux). Extract the archive **on your
+own machine**, then drag the resulting `urmetview` folder into
+`config/custom_components/`, creating that folder if it does not exist.
+
+*Studio Code Server* also works and has drag-and-drop upload plus a terminal.
+
+The plain **File editor** add-on is a poor fit here — it edits files one at a
+time and cannot unpack an archive.
 
 Do not copy `tools/`, `tests/` or `docs/` — the integration is just that one
 folder, and the nested `urmet/` package must come with it.
 
-Then **fully restart Home Assistant** (a config reload will not pick up a new
-integration), and add it under *Settings → Devices & Services → Add Integration
-→ Urmet*.
+Then **restart Home Assistant** — *Settings → System → ⋮ (top right) → Restart
+Home Assistant*. Restarting Core is enough; you do not need to reboot the host.
+A YAML reload will **not** pick up a newly added integration.
+
+Now add it under *Settings → Devices & Services → Add Integration → Urmet*. If
+"Urmet" does not appear in the list, the folder is in the wrong place or failed
+to import — check the log.
 
 Turn on debug logging before the first start — this has not yet run inside a
 live Home Assistant, so the most likely failure is an import error, and it will
