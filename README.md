@@ -68,6 +68,13 @@ OS or in Docker, `~/.homeassistant` for a Core venv install.
 There is no shell by default, so use one of these. Either is fine; pick the one
 whose add-on you already have.
 
+> **Two SSH surfaces, easily confused.** The HA OS *host* console (physical, or
+> SSH on port **22222**) drops you at a `ha >` prompt — the Home Assistant CLI,
+> which takes only `ha` subcommands and has no `ls`, no `tar` and no `/config`.
+> The **Terminal & SSH add-on** (port 22, from the Add-on Store) is different: a
+> real shell with `/config` mounted. Check which you have with
+> `ls /config/configuration.yaml` — if that prints, you are in the right one.
+
 **Terminal & SSH add-on** (fastest, if installed) — *Settings → Add-ons →
 Add-on Store → Terminal & SSH*, start it, open the Terminal tab:
 
@@ -84,7 +91,9 @@ then browse to `\\homeassistant\config` (Windows) or
 own machine**, then drag the resulting `urmetview` folder into
 `config/custom_components/`, creating that folder if it does not exist.
 
-*Studio Code Server* also works and has drag-and-drop upload plus a terminal.
+*Studio Code Server* is the best option if you expect to reinstall the folder a
+few times: drag-and-drop upload, a file tree, an integrated terminal, and you
+can edit `configuration.yaml` for the debug logging in the same window.
 
 The plain **File editor** add-on is a poor fit here — it edits files one at a
 time and cannot unpack an archive.
