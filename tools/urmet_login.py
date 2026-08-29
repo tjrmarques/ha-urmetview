@@ -307,13 +307,34 @@ def sweep(host: str, uid: str, rate: int = 20000) -> list[int]:
 class Session:
     """Just enough session to log in, ack, ping and tear down cleanly."""
 
-    def __init__(self, host: str, port: int, uid: str, auth: str, username: str):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        uid: str,
+        auth: str,
+        username: str,
+        sock: socket.socket | None = None,
+    ):
+        """``sock`` adopts an existing socket instead of opening a new one.
+
+        That matters for the punch experiment: the device may bind the session
+        it offers to the peer tuple it punched at, in which case only the
+        socket that received the punch can use it. A fresh socket would be a
+        different peer as far as the device is concerned.
+        """
         self.host, self.port = host, port
         self.uid, self.auth, self.username = uid, auth, username
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # Connected, so ICMP port-unreachable reaches us as an exception
-        # instead of silently vanishing - that is the whole failure mode here.
-        self.sock.connect((host, port))
+        self.adopted = sock is not None
+        if sock is not None:
+            self.sock = sock
+        else:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Connected, so ICMP port-unreachable reaches us as an exception
+            # instead of silently vanishing - that is the whole failure mode
+            # here. An adopted socket stays unconnected: it still has to be
+            # able to receive from the broadcast exchange that created it.
+            self.sock.connect((host, port))
         self.out_seq = 0
         self.cmd_seq = 0
         self.buffer = b""
@@ -321,6 +342,21 @@ class Session:
 
     def close(self) -> None:
         self.sock.close()
+
+    def _send(self, data: bytes) -> None:
+        if self.adopted:
+            self.sock.sendto(data, (self.host, self.port))
+        else:
+            self.sock.send(data)
+
+    def _recv(self, size: int = 4096) -> bytes:
+        """Return the next packet from our peer, ignoring anything else."""
+        if not self.adopted:
+            return self.sock.recv(size)
+        while True:
+            packet, (rhost, rport) = self.sock.recvfrom(size)
+            if rhost == self.host:
+                return packet
 
     def _block(self, subcmd: int, text: str) -> bytes:
         block = command_block(subcmd, text, self.cmd_seq)
@@ -338,12 +374,12 @@ class Session:
         self.out_seq = (self.out_seq + 1) & 0xFFFF
         frame = data_frame(CHANNEL_COMMAND, seq, payload)
         for _ in range(repeat):
-            self.sock.send(frame)
+            self._send(frame)
 
     def handshake(self) -> None:
         for _ in range(4):
-            self.sock.send(simple(MSG_CHECKCAM, pack_uid(self.uid)))
-        self.sock.send(simple(MSG_PING))
+            self._send(simple(MSG_CHECKCAM, pack_uid(self.uid)))
+        self._send(simple(MSG_PING))
         time.sleep(0.3)
 
     def login(self, verbose: bool = False) -> tuple[bool, str]:
@@ -358,11 +394,11 @@ class Session:
         while time.time() < end:
             now = time.time()
             if now >= next_ping:
-                self.sock.send(simple(MSG_PING))
+                self._send(simple(MSG_PING))
                 next_ping = now + PING_INTERVAL
             self.sock.settimeout(min(0.3, max(0.05, end - now)))
             try:
-                packet = self.sock.recv(4096)
+                packet = self._recv()
             except TimeoutError:
                 continue
             except ConnectionRefusedError:
@@ -385,7 +421,7 @@ class Session:
                 continue
             channel, seq, payload = parsed
             # Every d0 must be acked or the device stalls its send window.
-            self.sock.send(ack_frame(channel, [seq]))
+            self._send(ack_frame(channel, [seq]))
             if channel != CHANNEL_COMMAND:
                 continue
 
@@ -417,6 +453,164 @@ class Session:
             time.sleep(0.2)
         except OSError:
             pass
+
+
+def lan_search_keeping_socket(
+    wait: float = 2.5,
+) -> tuple[socket.socket, str, int] | None:
+    """LAN search that hands back the socket the punch arrived on.
+
+    The ordinary lan_search() closes it, which - if the device binds the
+    session to the peer tuple it punched at - throws away the only socket that
+    can use the offer.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    sock.bind(("", 0))
+    try:
+        sock.sendto(simple(MSG_LAN_SEARCH), ("255.255.255.255", 32108))
+        end = time.time() + wait
+        while time.time() < end:
+            sock.settimeout(max(0.05, end - time.time()))
+            try:
+                packet, (rhost, rport) = sock.recvfrom(2048)
+            except (TimeoutError, OSError):
+                break
+            if len(packet) >= 2 and packet[0] == MAGIC:
+                return sock, rhost, rport
+    except OSError:
+        pass
+    sock.close()
+    return None
+
+
+def experiment_punch(args) -> None:
+    """Is the LAN-search reply a usable session offer?
+
+    The device answers LAN search with 0x41 - a punch packet, the same message
+    a client sends to open a session - not the 0x31 announcement stock PPPP
+    documents. So it may be offering a session rather than announcing itself,
+    and every tool so far has discarded the socket that offer was made to.
+
+    Three arms separate the two explanations:
+
+      same socket, at once   works only if the offer is real and usable
+      fresh socket, at once  works too => the socket does not matter, and the
+                             earlier failures were about timing
+      same socket, delayed   fails => the offer has a short lifetime
+    """
+    print("=" * 70)
+    print("EXPERIMENT 1 - is the punch socket a usable session?")
+    print("=" * 70)
+    results: list[tuple[str, bool, str]] = []
+
+    def arm(label: str, delay: float, reuse: bool) -> None:
+        print(f"\n   {label}")
+        found = lan_search_keeping_socket()
+        if found is None:
+            print("      no LAN search reply - cannot run this arm")
+            results.append((label, False, "no reply"))
+            return
+        sock, host, port = found
+        print(f"      punch from {host}:{port}")
+        if delay:
+            print(f"      waiting {delay:.0f}s before logging in...")
+            time.sleep(delay)
+        if reuse:
+            session = Session(host, port, args.uid, args.auth, args.username, sock=sock)
+        else:
+            # Leave the punched socket open but unused, so the only difference
+            # from the arm above is which socket does the talking.
+            session = Session(host, port, args.uid, args.auth, args.username)
+        try:
+            session.handshake()
+            ok, detail = session.login(verbose=args.verbose)
+            print(f"      {'LOGIN OK' if ok else 'no login'}   {detail}")
+            results.append((label, ok, detail))
+            session.teardown()
+        finally:
+            session.close()
+            if not reuse:
+                sock.close()
+
+    arm("A. same socket, immediately", 0.0, True)
+    time.sleep(1)
+    arm("B. fresh socket, immediately", 0.0, False)
+    time.sleep(1)
+    arm("C. same socket, after 5s", 5.0, True)
+
+    print()
+    print("   " + "-" * 64)
+    same_now = next((ok for label, ok, _ in results if label.startswith("A")), False)
+    fresh_now = next((ok for label, ok, _ in results if label.startswith("B")), False)
+    same_late = next((ok for label, ok, _ in results if label.startswith("C")), False)
+    if same_now and not fresh_now:
+        print("   The session is bound to the socket that was punched. LAN search")
+        print("   is a complete cloud-free session path - keep the socket and log")
+        print("   in on it. Discovery and connection stop being separate steps.")
+    elif same_now and fresh_now and not same_late:
+        print("   The socket does not matter, but the offer expires. Log in at once")
+        print("   and the cloud and the sweep are both unnecessary.")
+    elif same_now and fresh_now and same_late:
+        print("   It just works. The earlier failures were something else - most")
+        print("   likely the punch port had already been reused or timed out.")
+    elif not same_now and not fresh_now:
+        print("   The punch socket serves no session however it is approached.")
+        print("   LAN search really does give the IP and nothing more; the port")
+        print("   has to come from the cloud or the sweep.")
+    else:
+        print("   Mixed result - see the arms above.")
+
+
+def experiment_types(args, ports: list[int]) -> None:
+    """Walk the whole f1 message-type space and see what answers.
+
+    We have only ever sent four of 256 possible types. 32108 is bound and
+    handles 0x30, so it plainly speaks something; this finds out what else,
+    on both that port and the punch socket. Each type is sent alone and
+    answered before the next, so replies attribute unambiguously.
+    """
+    print("=" * 70)
+    print("EXPERIMENT 2 - which message types get an answer?")
+    print("=" * 70)
+    payloads = [("empty", b""), ("uid", pack_uid(args.uid))]
+
+    print("   256 types x 2 payloads per port, one at a time so replies")
+    print("   attribute unambiguously. About 30s per port.")
+    for port in ports:
+        print(f"\n   {args.host}:{port}")
+        answered = 0
+        for label, payload in payloads:
+            for msg_type in range(256):
+                if msg_type and msg_type % 64 == 0:
+                    print(f"      ...{label} payload, type 0x{msg_type:02x}")
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.bind(("", 0))
+                # A device on the LAN answers in about a millisecond; this is
+                # generous already, and 512 probes make it add up.
+                sock.settimeout(0.05)
+                try:
+                    sock.sendto(simple(msg_type, payload), (args.host, port))
+                    while True:
+                        try:
+                            reply, (rhost, rport) = sock.recvfrom(2048)
+                        except (TimeoutError, OSError):
+                            break
+                        if rhost != args.host or len(reply) < 2:
+                            continue
+                        answered += 1
+                        name = TYPES.get(msg_type, f"0x{msg_type:02x}")
+                        back = TYPES.get(reply[1], f"0x{reply[1]:02x}")
+                        via = "" if rport == port else f" (from port {rport})"
+                        print(
+                            f"      sent {name:<12} +{label:<5} -> {back:<12}"
+                            f"{via}  {reply[:28].hex(' ')}"
+                        )
+                        break
+                finally:
+                    sock.close()
+        if not answered:
+            print("      nothing answered any of the 512 probes")
 
 
 def try_login(host: str, port: int, args) -> bool:
@@ -457,10 +651,41 @@ def main() -> int:
         action="store_true",
         help="stop at the first login that works (default: try all, to compare)",
     )
+    ap.add_argument(
+        "--experiment",
+        choices=["login", "punch", "types", "all"],
+        default="login",
+        help=(
+            "login: discover and log in (default). "
+            "punch: is the LAN-search reply a usable session? "
+            "types: which f1 message types get an answer?"
+        ),
+    )
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
     print(f"\nUrmet login test - UID {args.uid}")
+
+    if args.experiment in ("punch", "all"):
+        experiment_punch(args)
+        print()
+    if args.experiment in ("types", "all"):
+        if not args.host:
+            found = lan_search()
+            if found:
+                args.host = found[0][0]
+        if not args.host:
+            print("   --experiment types needs --host (LAN search found nothing)")
+            return 1
+        ports = [32108]
+        punch = lan_search()
+        ports += [port for host, port in punch if host == args.host]
+        if args.port:
+            ports.append(args.port)
+        experiment_types(args, sorted(set(ports)))
+        print()
+    if args.experiment != "login":
+        return 0
     candidates: list[tuple[str, int, str]] = []
     host = args.host
 
