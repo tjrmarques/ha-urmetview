@@ -72,6 +72,7 @@ class UrmetConfigFlow(ConfigFlow, domain=DOMAIN):
             auth = user_input[CONF_AUTH_HASH].strip()
             host = (user_input.get(CONF_HOST) or "").strip() or None
             port = user_input.get(CONF_PORT) or None
+            allow_cloud = user_input.get(CONF_ALLOW_CLOUD, True)
 
             if not protocol.AUTH_HASH_RE.match(auth):
                 errors[CONF_AUTH_HASH] = "invalid_auth_format"
@@ -86,7 +87,12 @@ class UrmetConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
                 try:
                     host, port = await self._async_verify(
-                        uid, auth, user_input.get(CONF_USERNAME, DEFAULT_USERNAME), host, port
+                        uid,
+                        auth,
+                        user_input.get(CONF_USERNAME, DEFAULT_USERNAME),
+                        host,
+                        port,
+                        allow_cloud,
                     )
                 except UrmetAuthError:
                     errors["base"] = "invalid_auth"
@@ -105,6 +111,10 @@ class UrmetConfigFlow(ConfigFlow, domain=DOMAIN):
                             CONF_HOST: host,
                             CONF_PORT: port,
                         },
+                        # Carried into options so the choice made here is the
+                        # one the running integration uses, and stays visible
+                        # and changeable afterwards.
+                        options={CONF_ALLOW_CLOUD: allow_cloud},
                     )
 
         return self.async_show_form(
@@ -138,6 +148,7 @@ class UrmetConfigFlow(ConfigFlow, domain=DOMAIN):
                     NumberSelectorConfig(min=1, max=65535, mode=NumberSelectorMode.BOX)
                 ),
                 vol.Optional(CONF_USERNAME, default=DEFAULT_USERNAME): str,
+                vol.Optional(CONF_ALLOW_CLOUD, default=True): bool,
             }
         )
 
@@ -148,6 +159,7 @@ class UrmetConfigFlow(ConfigFlow, domain=DOMAIN):
         username: str,
         host: str | None,
         port: int | None,
+        allow_cloud: bool = True,
     ) -> tuple[str, int]:
         """Prove the credentials work before creating the entry.
 
@@ -162,7 +174,7 @@ class UrmetConfigFlow(ConfigFlow, domain=DOMAIN):
             uid,
             host=host,
             cached_port=int(port) if port else None,
-            allow_cloud=True,
+            allow_cloud=allow_cloud,
             allow_sweep=bool(host),
         )
         if candidate is None:

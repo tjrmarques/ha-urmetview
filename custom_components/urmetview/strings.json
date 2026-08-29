@@ -9,7 +9,11 @@
           "auth_hash": "Auth hash",
           "host": "Host (optional)",
           "port": "Session port (optional)",
-          "username": "Username"
+          "username": "Username",
+          "allow_cloud": "Allow lookup via Urmet's servers"
+        },
+        "data_description": {
+          "allow_cloud": "Discovery tries a local broadcast first, which works when Home Assistant shares a subnet with the intercom. Leave this on to fall back to Urmet's servers if that fails - it sends the device UID to them. Turn it off to keep setup entirely local; then set Host so the port can be found by scanning."
         }
       }
     },
@@ -18,7 +22,7 @@
       "invalid_auth": "The device rejected this auth hash.",
       "invalid_auth_format": "The auth hash must be 32 hexadecimal characters.",
       "invalid_uid": "The UID should look like URMABB-700171-SMCYN.",
-      "not_found": "Could not find the intercom. If Home Assistant is on a different subnet or VLAN, discovery by broadcast cannot reach it - enter the device's IP in Host and leave Session port blank to scan for the port (takes up to a minute or so)."
+      "not_found": "Could not find the intercom. The local broadcast only reaches it if Home Assistant is on the same subnet - enter the device's IP in Host and leave Session port blank to scan for the port (up to a minute)."
     },
     "abort": {
       "already_configured": "This intercom is already set up."
