@@ -92,34 +92,42 @@ async def async_lan_search(
 ) -> list[Candidate]:
     """Broadcast ``MSG_LAN_SEARCH`` and see who answers.
 
-    In PPPP the device replies from the port it is actually serving sessions on,
-    which is exactly the value the cloud lookup exists to tell us. If it works
-    here, the integration never needs Urmet's servers at all.
+    The device replies with a ``0x41`` punch carrying the short-form packed
+    UID - not the ``0x31`` LAN_NOTIFY stock PPPP documents. That is not an
+    announcement, it is a session **offer** opened on a fresh port, and a login
+    to that port works directly. Verified against the real device three ways:
+    on the socket that received it, on a different socket, and after a
+    five-second delay.
 
-    **Verified against the real device.** It replies with a ``0x41`` carrying
-    the short-form packed UID - not the ``0x31`` LAN_NOTIFY stock PPPP
-    documents - so any ``f1`` reply is accepted rather than matching on type.
-    A full port scan independently confirmed the reply's source port as the
-    session port.
+    The catch is that the offer binds to the first peer that talks to it. So
+    nothing may probe the port before the session does, and a caller that
+    discards the result has burnt an offer - the device opens another on the
+    next search.
 
     Only reaches the device if the client shares its subnet; a broadcast cannot
     cross. That is why earlier captures showed nothing - they were all taken
     from a different subnet.
-
-    Both probe encodings are still sent, since only one has been observed
-    working and the other costs a single datagram.
     """
     transport, collector = await _open(broadcast=True)
-    probes = (
-        p.build_simple(0x30),  # f1 30 00 00, the common encoding
-        bytes([0x30, 0x00]),  # bare, as some implementations send it
-    )
     try:
-        for probe in probes:
-            for port in ports:
-                with contextlib.suppress(OSError):
-                    transport.sendto(probe, (broadcast_addr, port))
+        # One valid probe to the standard port first. Every LAN_SEARCH the
+        # device answers costs it a session offer, so asking eight ways at once
+        # is not free - and this is the form measured to work.
+        with contextlib.suppress(OSError):
+            transport.sendto(p.build_simple(0x30), (broadcast_addr, LAN_SEARCH_PORT))
         await asyncio.sleep(timeout)
+        if not collector.packets:
+            _LOGGER.debug(
+                "No answer on %s; trying the other ports and the bare probe",
+                LAN_SEARCH_PORT,
+            )
+            for probe in (p.build_simple(0x30), bytes([0x30, 0x00])):
+                for port in ports:
+                    if port == LAN_SEARCH_PORT and probe == p.build_simple(0x30):
+                        continue
+                    with contextlib.suppress(OSError):
+                        transport.sendto(probe, (broadcast_addr, port))
+            await asyncio.sleep(timeout)
     finally:
         transport.close()
 
@@ -350,6 +358,86 @@ async def async_listen_broadcast(timeout: float = 35.0) -> p.DiscoveredDevice | 
 # --- Orchestration ----------------------------------------------------------
 
 
+async def async_find_candidates(
+    uid: str,
+    host: str | None = None,
+    cached_port: int | None = None,
+    allow_cloud: bool = True,
+    allow_sweep: bool = False,
+    exclude: Collection[tuple[str, int]] = (),
+) -> list[Candidate]:
+    """Collect every address worth attempting a login against, cheapest first.
+
+    Deliberately does **not** verify anything. A checkCam probe is not a free
+    look: the device answers LAN search by opening a one-shot session offer on
+    a fresh port, and that offer binds to the first peer that talks to it.
+    Probing from a throwaway socket claims the offer, so the real session
+    arrives as a stranger and is ignored - discovery reports success and the
+    login then dies, which is exactly the failure this integration had.
+
+    Measured on the device: the offer port answers ``0x42`` to almost any
+    message type carrying a 20-byte UID payload, so an ack proves nothing
+    anyway. Only a login distinguishes a session from a responder, and the
+    caller does that.
+    """
+    skip = set(exclude)
+    candidates: list[Candidate] = []
+
+    def add(candidate: Candidate) -> None:
+        key = (candidate.host, candidate.port)
+        if key in skip or any((c.host, c.port) == key for c in candidates):
+            return
+        candidates.append(candidate)
+
+    if host and cached_port:
+        add(Candidate(host, cached_port, "cached"))
+
+    for candidate in await async_lan_search():
+        if host and candidate.host != host:
+            continue
+        add(candidate)
+    if not candidates:
+        _LOGGER.debug(
+            "LAN search got no reply. Expected if Home Assistant and the intercom "
+            "are on different subnets or VLANs, since the broadcast cannot cross."
+        )
+
+    if allow_cloud:
+        cloud = await async_cloud_lookup(uid)
+        if not cloud:
+            _LOGGER.debug(
+                "Cloud lookup returned no candidates. Check outbound UDP 32100 is "
+                "allowed and that %s resolve.",
+                ", ".join(CLOUD_HOSTS_DISPLAY),
+            )
+        for candidate in cloud:
+            if host and candidate.host != host:
+                continue
+            add(candidate)
+
+    target = host or next((c.host for c in candidates), None)
+    if allow_sweep and target and not candidates:
+        # Last resort, and not a gentle one: it sends checkCam to every port,
+        # which claims any pending offer along the way.
+        _LOGGER.debug("Sweeping ports on %s as a last resort", target)
+        for candidate in await async_port_sweep(target, uid):
+            add(candidate)
+
+    if not candidates:
+        _LOGGER.warning(
+            "Could not locate the intercom by any method (LAN search, cloud lookup%s). "
+            "Setting an explicit host and port in the integration options bypasses "
+            "discovery entirely.",
+            ", port sweep" if allow_sweep and target else "",
+        )
+    else:
+        _LOGGER.debug(
+            "Candidates to try, in order: %s",
+            ", ".join(str(candidate) for candidate in candidates),
+        )
+    return candidates
+
+
 async def async_find_device(
     uid: str,
     host: str | None = None,
@@ -358,91 +446,18 @@ async def async_find_device(
     allow_sweep: bool = False,
     exclude: Collection[tuple[str, int]] = (),
 ) -> Candidate | None:
-    """Try every strategy in order of cost and return the first that works.
+    """The first candidate, for callers that only want one.
 
-    Logs the outcome of each step. Without that a failure is just "not found",
-    which is indistinguishable between a routing problem, a blocked broadcast,
-    a cloud outage and a device that is simply off.
-
-    ``exclude`` skips addresses already known to be dead. An address can answer
-    a probe and still refuse the session moments later, and without this a
-    retry just rediscovers the same dead port and fails identically.
+    Prefer :func:`async_find_candidates` and verify with a login: the first
+    candidate is a guess, not a verified address, and nothing here can tell
+    the difference without connecting.
     """
-    skip = set(exclude)
-
-    def _accept(candidate: Candidate) -> Candidate | None:
-        """Drop a candidate that is on the exclude list."""
-        if (candidate.host, candidate.port) in skip:
-            _LOGGER.debug("Skipping %s - already failed this round", candidate)
-            return None
-        return candidate
-
-    if host and cached_port and (host, cached_port) not in skip:
-        answered = await async_probe_port(host, cached_port, uid)
-        if answered is not None and (
-            found := _accept(Candidate(host, answered, "cached"))
-        ):
-            _LOGGER.debug("Found via supplied/cached address %s:%s", host, answered)
-            return found
-        _LOGGER.debug(
-            "No reply from the supplied address %s:%s - the port may have changed",
-            host,
-            cached_port,
-        )
-
-    replies = await async_lan_search()
-    if not replies:
-        _LOGGER.debug(
-            "LAN search got no reply. Expected if Home Assistant and the intercom "
-            "are on different subnets or VLANs, since the broadcast cannot cross."
-        )
-    for candidate in replies:
-        if (candidate.host, candidate.port) in skip:
-            _LOGGER.debug("Skipping %s - already failed this round", candidate)
-            continue
-        answered = await async_probe_port(candidate.host, candidate.port, uid)
-        if answered is not None and (
-            found := _accept(Candidate(candidate.host, answered, candidate.source))
-        ):
-            _LOGGER.debug("Found via LAN search: %s", found)
-            return found
-        _LOGGER.debug("LAN search replied from %s but no session followed", candidate)
-
-    if allow_cloud:
-        candidates = await async_cloud_lookup(uid)
-        if not candidates:
-            _LOGGER.debug(
-                "Cloud lookup returned no candidates. Check outbound UDP 32100 is "
-                "allowed and that %s resolve.",
-                ", ".join(CLOUD_HOSTS_DISPLAY),
-            )
-        for candidate in candidates:
-            if (candidate.host, candidate.port) in skip:
-                _LOGGER.debug("Skipping %s - already failed this round", candidate)
-                continue
-            answered = await async_probe_port(candidate.host, candidate.port, uid)
-            if answered is not None and (
-                found := _accept(Candidate(candidate.host, answered, "cloud"))
-            ):
-                _LOGGER.debug("Found via cloud lookup: %s", found)
-                return found
-            _LOGGER.debug(
-                "Cloud offered %s but it did not answer - unreachable from here, "
-                "or the address is a relay rather than the LAN one",
-                candidate,
-            )
-
-    if allow_sweep and host:
-        _LOGGER.debug("Sweeping ports on %s as a last resort", host)
-        for candidate in await async_port_sweep(host, uid):
-            if (found := _accept(candidate)) is not None:
-                _LOGGER.debug("Found via port sweep: %s", found)
-                return found
-
-    _LOGGER.warning(
-        "Could not locate the intercom by any method (LAN search, cloud lookup%s). "
-        "Setting an explicit host and port in the integration options bypasses "
-        "discovery entirely.",
-        ", port sweep" if allow_sweep and host else "",
+    candidates = await async_find_candidates(
+        uid,
+        host=host,
+        cached_port=cached_port,
+        allow_cloud=allow_cloud,
+        allow_sweep=allow_sweep,
+        exclude=exclude,
     )
-    return None
+    return candidates[0] if candidates else None

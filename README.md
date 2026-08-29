@@ -182,24 +182,32 @@ The integration itself tries them in this order, cheapest first:
 | Cloud lookup via `*.caycctv.com` | unless disabled in options | ~4 s |
 | Local port scan | only if a Host is set | 30-90 s, 64k packets |
 
-**LAN search works**, which means the integration can run entirely cloud-free
-as long as Home Assistant shares a subnet with the intercom. Broadcasting
-`f1 30 00 00` to UDP 32108 makes the device answer from its current session
-port — the exact value the cloud lookup exists to provide. It went unnoticed
-for a long time only because every early capture was taken from a different
-subnet, and a broadcast cannot cross one. Verified against the real device: it
-replied from port 23117, which an independent full port scan confirmed as the
-session port.
+**LAN search is the whole connection**, not merely a lookup, so the integration
+runs entirely cloud-free whenever Home Assistant shares a subnet with the
+intercom. Broadcasting `f1 30 00 00` to UDP 32108 makes the device open a
+**session offer** on a fresh port and punch back from it — a `0x41`, the same
+message a client sends to start a session, not the `0x31` announcement stock
+PPPP documents. Logging in to that port works directly. It went unnoticed for
+a long time only because every early capture was taken from a different
+subnet, and a broadcast cannot cross one.
 
-The scan is last because it is by far the most expensive. Turning off **Use
-Urmet's servers to find the device** in the options skips the cloud step, so
-discovery never leaves your network — at the cost of falling through to the
-scan whenever the port has changed.
+The offer **binds to the first peer that talks to it**, which is the part that
+matters. Anything probing the port before the session does — a checkCam to
+"verify" it — claims the offer, and the real session then arrives as a
+stranger and is ignored. That was the cause of setup failing with
+`Connection refused` shortly after discovery reported success. Discovery here
+therefore verifies nothing; the login is the test, and each candidate is tried
+in turn until one accepts a session.
 
-Whichever step finds the device, the integration uses the port the reply
-actually **came from**, not the port it asked. The device sometimes answers a
-probe from a short-lived socket, and taking the asked-for port at face value
-sends the session to an address nothing is listening on.
+A probe would not tell you anything anyway. Measured against the device, the
+offer port answers `SESSION_ACK` to almost any message type carrying a
+20-byte UID payload — `0x44`, `0x8a`, `0xff`. An ack means only that something
+is listening.
+
+The scan is last because it is the most expensive, and because it sends
+checkCam to every port, claiming any pending offer on the way. Turning off
+**Use Urmet's servers to find the device** in the options skips the cloud step,
+so discovery never leaves your network.
 
 ### Troubleshooting discovery
 
@@ -214,8 +222,9 @@ logger:
 
 | What you see | What it means |
 |---|---|
-| `Found via LAN search: …` then `Connection refused` | The port went stale between discovery and login. The integration now retries once, excluding the address that just failed. |
-| `Probed <ip>:<a> but the session ack came from port <b>` | Normal, and handled — the session goes to `<b>`. |
+| `Candidates to try, in order: …` | Discovery's guesses. Each is tried with a real login until one works. |
+| `No session at <ip>:<port>: …` | That candidate is not a session endpoint; the next one is being tried. |
+| `Connection refused` right after discovery | Was the old probe-first bug. If you still see it, the offer is being claimed by something else on the network. |
 | `LAN search got no reply` | Home Assistant is on a different subnet or VLAN from the intercom, or broadcast is filtered. Set the Host so the local port scan can act as the fallback. |
 | `Cloud lookup returned no candidates` | Outbound UDP 32100 is blocked, or `*.caycctv.com` does not resolve. |
 | `Could not locate the intercom by any method` | Set both Host and Port explicitly to bypass discovery. |

@@ -16,7 +16,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import Callable, Collection
+from collections.abc import Callable
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -185,68 +185,50 @@ class UrmetCoordinator:
         await self.pipeline.async_stop()
         await self._async_disconnect()
 
-    async def _async_resolve(
-        self, exclude: Collection[tuple[str, int]] = ()
-    ) -> tuple[str, int]:
-        """Find the device's current address.
-
-        The session port changes per session, so a cached value is only a hint;
-        it gets verified before use and rediscovered if stale.
-        """
-        candidate = await discovery.async_find_device(
-            self.uid,
-            host=self.host,
-            cached_port=self.port,
-            allow_cloud=self.allow_cloud,
-            # Once the host is known the sweep is a fully local fallback, which
-            # matters on a reconnect after the device has rotated its port.
-            allow_sweep=bool(self.host),
-            exclude=exclude,
-        )
-        if candidate is None:
-            raise UrmetError(
-                "Could not locate the intercom. Check it is powered and on the "
-                "same network, or set a static host/port in the options."
-            )
-        return candidate.host, candidate.port
-
     async def _async_connect(self) -> None:
-        """Connect, retrying once with fresh discovery if the port went stale.
+        """Find the device and log in, trying each candidate in turn.
 
-        Discovery and login are separate round trips, and the device can move
-        its session port in between - the port answers when probed and is dead
-        seconds later. One retry with the cached port cleared turns that race
-        into a slower connect instead of a failed setup.
+        A login is the only meaningful verification. The device answers LAN
+        search by opening a one-shot session offer, and that offer binds to the
+        first peer that talks to it - so probing a candidate before connecting
+        claims it, and the real session is then ignored. Discovery therefore
+        hands back guesses, and connecting is what tests them.
         """
         async with self._connect_lock:
             if self.session is not None and self.session.connected:
                 return
-            failed: list[tuple[str, int]] = []
-            try:
-                await self._async_connect_once(failed)
-            except UrmetAuthError:
-                raise  # a bad hash will not fix itself
-            except UrmetError as err:
-                _LOGGER.debug(
-                    "First connect attempt failed (%s), rediscovering without %s",
-                    err,
-                    failed or "any exclusions",
+
+            candidates = await discovery.async_find_candidates(
+                self.uid,
+                host=self.host,
+                cached_port=self.port,
+                allow_cloud=self.allow_cloud,
+                # Once the host is known the sweep is a fully local fallback,
+                # which matters on a reconnect after the port has changed.
+                allow_sweep=bool(self.host),
+            )
+            if not candidates:
+                raise UrmetError(
+                    "Could not locate the intercom. Check it is powered and on "
+                    "the same network, or set a static host/port in the options."
                 )
-                self.port = None
-                await self._async_connect_once(failed)
 
-    async def _async_connect_once(
-        self, failed: list[tuple[str, int]] | None = None
-    ) -> None:
-        """One discovery-and-login attempt.
+            last_error: UrmetError | None = None
+            for candidate in candidates:
+                try:
+                    await self._async_connect_to(candidate.host, candidate.port)
+                except UrmetAuthError:
+                    raise  # a bad hash will not fix itself on another port
+                except UrmetError as err:
+                    _LOGGER.debug("No session at %s: %s", candidate, err)
+                    last_error = err
+                    continue
+                return
 
-        Appends the address it tried to ``failed`` before logging in, so a
-        caller retrying after an exception knows which address not to pick
-        again.
-        """
-        host, port = await self._async_resolve(failed or ())
-        if failed is not None:
-            failed.append((host, port))
+            raise last_error or UrmetError("No candidate accepted a session")
+
+    async def _async_connect_to(self, host: str, port: int) -> None:
+        """Log in at one address, and adopt it as ours if it works."""
         session = UrmetSession(host, port, self.uid, self.auth_hash, self.username)
         session.on_video = self._on_video
         session.on_audio = self._on_audio

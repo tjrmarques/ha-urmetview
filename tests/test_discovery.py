@@ -30,6 +30,16 @@ UID = "URMABB-700171-SMCYN"
 HOST = "127.0.0.1"
 
 
+class _Counter(asyncio.DatagramProtocol):
+    """Counts anything sent to it. Used to prove discovery stays silent."""
+
+    def __init__(self) -> None:
+        self.count = 0
+
+    def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
+        self.count += 1
+
+
 class _FakeDevice(asyncio.DatagramProtocol):
     """Listens on one port and replies from another, like the real device."""
 
@@ -115,49 +125,92 @@ def test_probe_returns_none_when_nothing_answers() -> None:
     asyncio.run(run())
 
 
-def test_find_device_skips_excluded_addresses() -> None:
-    """A retry must not pick the address that just refused the session."""
+def test_discovery_never_probes_a_candidate() -> None:
+    """The regression guard for the bug that broke setup.
+
+    The device answers LAN search by opening a one-shot session offer, and
+    that offer binds to the first peer that talks to it. Discovery probing the
+    port claimed the offer, so the real session arrived as a stranger and was
+    ignored - which surfaced as a login that never completed. Discovery must
+    therefore send the candidate nothing at all.
+    """
 
     async def run() -> None:
-        listen_port, _, transports = await _spawn(reply_from_other_port=False)
-        try:
-            found = await discovery.async_find_device(
-                UID, host=HOST, cached_port=listen_port, allow_cloud=False
-            )
-            assert found is not None and found.port == listen_port
+        loop = asyncio.get_running_loop()
+        offer_transport, offer = await loop.create_datagram_endpoint(
+            _Counter, local_addr=(HOST, 0)
+        )
+        offer_port = offer_transport.get_extra_info("sockname")[1]
 
-            again = await discovery.async_find_device(
-                UID,
-                host=HOST,
-                cached_port=listen_port,
-                allow_cloud=False,
-                exclude=[(HOST, listen_port)],
+        async def fake_lan_search(*args, **kwargs):
+            return [discovery.Candidate(HOST, offer_port, "lan-search")]
+
+        real = discovery.async_lan_search
+        discovery.async_lan_search = fake_lan_search
+        try:
+            candidates = await discovery.async_find_candidates(
+                UID, host=HOST, allow_cloud=False
             )
-            assert again is None, f"excluded address was returned anyway: {again}"
+            assert [(c.host, c.port) for c in candidates] == [(HOST, offer_port)]
+            await asyncio.sleep(0.2)
+            assert offer.count == 0, (
+                f"discovery sent {offer.count} packet(s) to the offer port - "
+                "that claims the session and the real login is then ignored"
+            )
         finally:
-            for transport in transports:
-                transport.close()
+            discovery.async_lan_search = real
+            offer_transport.close()
 
     asyncio.run(run())
 
 
-def test_find_device_excludes_by_the_answering_port() -> None:
-    """Exclusion is on where the session would actually go, not what we asked."""
+def test_candidates_are_ordered_deduped_and_excludable() -> None:
+    """Cached first, then LAN search; no address twice; exclusions dropped."""
 
     async def run() -> None:
-        listen_port, reply_port, transports = await _spawn(reply_from_other_port=True)
+        async def fake_lan_search(*args, **kwargs):
+            return [
+                discovery.Candidate(HOST, 2222, "lan-search"),
+                discovery.Candidate(HOST, 1111, "lan-search"),  # same as cached
+            ]
+
+        real = discovery.async_lan_search
+        discovery.async_lan_search = fake_lan_search
         try:
-            again = await discovery.async_find_device(
+            candidates = await discovery.async_find_candidates(
+                UID, host=HOST, cached_port=1111, allow_cloud=False
+            )
+            assert [c.port for c in candidates] == [1111, 2222]
+            assert candidates[0].source == "cached"
+
+            pruned = await discovery.async_find_candidates(
                 UID,
                 host=HOST,
-                cached_port=listen_port,
+                cached_port=1111,
                 allow_cloud=False,
-                exclude=[(HOST, reply_port)],
+                exclude=[(HOST, 1111)],
             )
-            assert again is None, f"excluded answering port was returned: {again}"
+            assert [c.port for c in pruned] == [2222]
         finally:
-            for transport in transports:
-                transport.close()
+            discovery.async_lan_search = real
+
+    asyncio.run(run())
+
+
+def test_candidates_from_another_host_are_ignored() -> None:
+    async def run() -> None:
+        async def fake_lan_search(*args, **kwargs):
+            return [discovery.Candidate("10.9.9.9", 2222, "lan-search")]
+
+        real = discovery.async_lan_search
+        discovery.async_lan_search = fake_lan_search
+        try:
+            candidates = await discovery.async_find_candidates(
+                UID, host=HOST, allow_cloud=False
+            )
+            assert candidates == []
+        finally:
+            discovery.async_lan_search = real
 
     asyncio.run(run())
 

@@ -162,31 +162,41 @@ class UrmetConfigFlow(ConfigFlow, domain=DOMAIN):
         Logging in for real is the only meaningful check: the hash is opaque,
         so there is nothing to validate locally beyond its shape.
         """
-        # Allow the port sweep when a host is known: it takes ~20s but is fully
+        # Allow the port sweep when a host is known: it is slow but fully
         # local, so "enter the IP, leave the port blank" just works even when
         # broadcast cannot cross to the device's subnet and the cloud is
         # unreachable.
-        candidate = await discovery.async_find_device(
+        candidates = await discovery.async_find_candidates(
             uid,
             host=host,
             cached_port=int(port) if port else None,
             allow_cloud=allow_cloud,
             allow_sweep=bool(host),
         )
-        if candidate is None:
+        if not candidates:
             raise DeviceNotFound
 
-        session = UrmetSession(candidate.host, candidate.port, uid, auth, username)
-        try:
-            await session.async_connect()
-        finally:
-            # Always tear down, or the device holds the session and the first
-            # real connection is refused.
+        last_error: UrmetError | None = None
+        for candidate in candidates:
+            session = UrmetSession(candidate.host, candidate.port, uid, auth, username)
             try:
-                await session.async_close()
-            except UrmetError:
-                pass
-        return candidate.host, candidate.port
+                await session.async_connect()
+            except UrmetAuthError:
+                raise  # the hash is wrong; another address will not help
+            except UrmetError as err:
+                _LOGGER.debug("No session at %s: %s", candidate, err)
+                last_error = err
+                continue
+            finally:
+                # Always tear down, or the device holds the session and the
+                # first real connection is refused.
+                try:
+                    await session.async_close()
+                except UrmetError:
+                    pass
+            return candidate.host, candidate.port
+
+        raise last_error or DeviceNotFound
 
     @staticmethod
     @callback
