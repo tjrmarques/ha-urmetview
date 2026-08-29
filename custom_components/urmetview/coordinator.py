@@ -93,6 +93,11 @@ class UrmetCoordinator:
 
         self._command_lock = asyncio.Lock()
         self._connect_lock = asyncio.Lock()
+        # Serialises start/stop/restart of the device stream. Without it a
+        # stream_source() arriving during a restart's stop-then-start window
+        # sees _video_running False and issues a second start_video, and the
+        # device answers the loser 'video busy'.
+        self._video_lock = asyncio.Lock()
         self._video_running = False
         self._last_activity = 0.0
         self._idle_task: asyncio.Task[None] | None = None
@@ -317,14 +322,28 @@ class UrmetCoordinator:
         self._last_activity = time.monotonic()
 
     async def _async_start_video(self) -> None:
+        async with self._video_lock:
+            await self._async_start_video_locked()
+
+    async def _async_start_video_locked(self) -> None:
+        """Caller must hold _video_lock."""
         if self._video_running:
             return
         session = await self._async_require_session()
         await self.pipeline.async_start()
-        async with self._command_lock:
-            await session.async_start_video(self.quality)
-            with contextlib.suppress(UrmetError):
-                await session.async_start_audio()
+        try:
+            async with self._command_lock:
+                await session.async_start_video(self.quality)
+                with contextlib.suppress(UrmetError):
+                    await session.async_start_audio()
+        except Exception:
+            # The device refused - "video busy" when the phone app holds the
+            # channel, most often. ffmpeg is already up, and the idle monitor
+            # that would normally clean it up is only started on success, so
+            # without this the process is left running until the entry is
+            # unloaded.
+            await self.pipeline.async_stop()
+            raise
         self._video_running = True
         self._mark_activity()
         self._start_idle_monitor()
@@ -332,6 +351,11 @@ class UrmetCoordinator:
         self._notify()
 
     async def _async_stop_video(self) -> None:
+        async with self._video_lock:
+            await self._async_stop_video_locked()
+
+    async def _async_stop_video_locked(self) -> None:
+        """Caller must hold _video_lock."""
         if not self._video_running:
             return
         self._video_running = False
@@ -461,10 +485,14 @@ class UrmetCoordinator:
         fresh start_video may not land where the last one left off.
         """
         wanted = self.station
-        await self._async_stop_video()
-        # Whatever we knew about the station no longer holds across a restart.
-        self.station = None
-        await self._async_start_video()
+        # Held across both halves: a stream_source() landing in the gap would
+        # otherwise start the video itself and one of the two starts would come
+        # back "video busy".
+        async with self._video_lock:
+            await self._async_stop_video_locked()
+            # What we knew about the station does not hold across a restart.
+            self.station = None
+            await self._async_start_video_locked()
         if wanted is not None:
             with contextlib.suppress(UrmetError):
                 await self.async_select_station(wanted)

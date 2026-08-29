@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import re
 from collections.abc import Callable
 
 from .urmet.const import AUDIO_FRAME_BYTES, AUDIO_SAMPLE_RATE
@@ -43,6 +44,8 @@ TS_PID_PAT = 0x0000
 #: Give up on a consumer whose socket backlog passes this, rather than buffer
 #: without limit for a reader that has stopped reading.
 MAX_CLIENT_BACKLOG = 4 * 1024 * 1024
+
+_RATIONAL_RE = re.compile(r"[1-9]\d*/[1-9]\d*")
 
 
 #: mu-law silence. Writing zero bytes would decode as a loud constant tone.
@@ -175,6 +178,34 @@ class MediaPipeline:
             self.out_port,
         )
 
+    def _aspect_args(self) -> list[str]:
+        """Bitstream-filter arguments for the aspect correction, if any.
+
+        The device sends 960x240 with no aspect information, so players assume
+        square pixels and stretch it. h264_metadata rewrites the SPS field in
+        the bitstream, which keeps -c:v copy - a scale filter would force a
+        re-encode for a one-field correction.
+
+        The value must be a rational written with a slash. A colon is
+        ffmpeg's own option separator inside a filter spec, so "1:2" parses as
+        sample_aspect_ratio=1 followed by a nameless option "2", and ffmpeg
+        then refuses to open the output at all - which takes video and
+        snapshots with it. "1:2" is the natural way to write it, so accept it
+        and convert; anything that is still not a rational is dropped with a
+        warning rather than passed through to break the pipeline.
+        """
+        value = (self._pixel_aspect or "").strip().replace(":", "/")
+        if not value:
+            return []
+        if not _RATIONAL_RE.fullmatch(value):
+            _LOGGER.warning(
+                "Ignoring picture aspect correction %r: expected a ratio like "
+                "1:2 or 4/3",
+                self._pixel_aspect,
+            )
+            return []
+        return ["-bsf:v", f"h264_metadata=sample_aspect_ratio={value}"]
+
     async def _async_spawn_ffmpeg(self) -> None:
         args = [
             self._ffmpeg_binary,
@@ -208,16 +239,7 @@ class MediaPipeline:
                 f"tcp://127.0.0.1:{self.audio_port}",
             ]
         args += ["-c:v", "copy"]
-        if self._pixel_aspect:
-            # The device sends 960x240 with no aspect information, so players
-            # assume square pixels and stretch it. h264_metadata rewrites the
-            # SPS aspect field in the bitstream, which keeps -c:v copy - a
-            # scale filter would force a re-encode for what is a one-field
-            # correction.
-            args += [
-                "-bsf:v",
-                f"h264_metadata=sample_aspect_ratio={self._pixel_aspect}",
-            ]
+        args += self._aspect_args()
         if self._enable_audio:
             args += ["-c:a", "aac", "-b:a", "64k", "-ar", "16000"]
         args += [

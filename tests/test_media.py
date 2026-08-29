@@ -171,6 +171,101 @@ def test_relay_url_is_stable_across_restarts() -> None:
     asyncio.run(run())
 
 
+def test_aspect_accepts_a_colon_and_emits_a_slash() -> None:
+    """A colon is ffmpeg's option separator, so it must not reach the filter.
+
+    "1:2" parses as sample_aspect_ratio=1 plus a nameless option "2", and
+    ffmpeg then refuses to open the output at all - which takes video and
+    snapshots down together.
+    """
+    pipeline = MediaPipeline("/bin/false", pixel_aspect="1:2")
+    assert pipeline._aspect_args() == [
+        "-bsf:v",
+        "h264_metadata=sample_aspect_ratio=1/2",
+    ]
+
+
+def test_aspect_passes_a_slash_through() -> None:
+    pipeline = MediaPipeline("/bin/false", pixel_aspect="4/3")
+    assert pipeline._aspect_args()[1].endswith("=4/3")
+
+
+def test_aspect_empty_means_no_filter() -> None:
+    for value in ("", "   ", None):
+        assert MediaPipeline("/bin/false", pixel_aspect=value)._aspect_args() == []
+
+
+def test_a_bad_aspect_is_dropped_not_passed_on() -> None:
+    """A bad setting must degrade to no correction, never break the pipeline."""
+    for value in ("wide", "1:2:3", "0/2", "-1/2", "1/", "16x9"):
+        assert MediaPipeline("/bin/false", pixel_aspect=value)._aspect_args() == [], (
+            value
+        )
+
+
+def test_ffmpeg_accepts_the_arguments_we_build() -> None:
+    """Run the real thing. The syntax error this guards was only visible here.
+
+    Skipped when ffmpeg is missing, so it does not turn CI red on a machine
+    that cannot run it.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        print("      (skipped: no ffmpeg)")
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source = pathlib.Path(tmp) / "src.h264"
+        subprocess.run(
+            [
+                ffmpeg,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=960x240:rate=10",
+                "-t",
+                "1",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:v",
+                "libx264",
+                "-profile:v",
+                "baseline",
+                "-f",
+                "h264",
+                "-y",
+                str(source),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        out = pathlib.Path(tmp) / "out.ts"
+        args = [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "h264",
+            "-i",
+            str(source),
+            "-c:v",
+            "copy",
+        ]
+        args += MediaPipeline("/bin/false", pixel_aspect="1:2")._aspect_args()
+        args += ["-f", "mpegts", "-y", str(out)]
+        result = subprocess.run(args, capture_output=True, text=True)
+        assert result.returncode == 0, f"ffmpeg rejected our arguments: {result.stderr}"
+        assert out.stat().st_size > 0, "ffmpeg wrote nothing"
+
+
 def _run_standalone() -> int:
     failures = 0
     for name, func in sorted(globals().items()):
