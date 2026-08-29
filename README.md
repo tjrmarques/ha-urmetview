@@ -32,6 +32,7 @@ video, the door lock and the gate work locally without the vendor app.
 | `select.stream_quality` | LD / SD / HD |
 | `button.door_lock_release` | The key symbol — acts on the active station |
 | `button.gate_release` | Gate/driveway — acts on the active station |
+| `button.restart_video` | Ask for the picture again after it goes black |
 | `event.doorbell` | Fires on ring (`device_class: doorbell`) |
 | `switch.talk` | Holds the outbound audio channel open |
 | `binary_sensor.session` | Whether we hold a session |
@@ -264,6 +265,37 @@ constraint, not a design choice.
 | `urmet_talk.py` | Send audio out of the door station's speaker |
 | `urmet_tzsp.py` | Decode router-mirrored traffic (doorbell research) |
 | `urmet_pcap.py` | Extract the auth hash and summarise a capture |
+
+## How the video works
+
+Nothing streams until Home Assistant asks for it. The device has **one** video
+channel, and while the integration holds it the phone app cannot answer a call,
+so it is taken late and given back promptly.
+
+1. You open the camera. HA calls `stream_source()`, which logs in if needed,
+   starts the local pipeline, sends `start_video` (and `start_audio`) to the
+   device, and returns `tcp://127.0.0.1:<port>`.
+2. HA hands that URL to go2rtc, which connects to the relay. The device's
+   H.264 and mu-law are muxed into MPEG-TS and fanned out to every viewer.
+3. A monitor checks every 2 s for real TCP consumers. Once there are none for
+   **Release video after** seconds (default 30), the stream is stopped and the
+   channel handed back. It watches actual sockets rather than counting calls,
+   because HA asks for a stream source without ever saying it has finished.
+4. Lock, gate and station commands need video running — the device answers
+   `busy` otherwise — so they bring it up briefly if nothing is watching.
+
+**When the picture goes black**, which this device does on its own without
+reporting anything, press **Restart video** (or call `urmetview.restart_video`).
+There is no watchdog by design: an automatic restart would seize the video
+channel at exactly the moment someone is trying to answer on their phone.
+
+Re-picking the current station in the dropdown will *not* restart it. Home
+Assistant does not call a select entity when the value has not changed, which
+is why the button exists.
+
+Selecting the *other* station keeps the stream up and switches the picture. The
+device's command cycles rather than selects, so the integration repeats it
+until the reported station matches what you asked for.
 
 ## Doorbell
 

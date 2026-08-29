@@ -32,6 +32,7 @@ from .const import (
     DOMAIN,
     SERVICE_ANSWER,
     SERVICE_HANG_UP,
+    SERVICE_RESTART_VIDEO,
     SERVICE_OPEN_GATE,
     SERVICE_OPEN_LOCK,
     SERVICE_SELECT_STATION,
@@ -113,6 +114,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for service in (
                 SERVICE_ANSWER,
                 SERVICE_HANG_UP,
+                SERVICE_RESTART_VIDEO,
                 SERVICE_OPEN_LOCK,
                 SERVICE_OPEN_GATE,
                 SERVICE_SELECT_STATION,
@@ -190,6 +192,10 @@ def _async_register_services(hass: HomeAssistant) -> None:
         for coordinator in _coordinators(hass, call):
             await coordinator.async_hang_up()
 
+    async def _restart_video(call: ServiceCall) -> None:
+        for coordinator in _coordinators(hass, call):
+            await coordinator.async_restart_video()
+
     async def _talk(call: ServiceCall) -> None:
         media = call.data[ATTR_MEDIA]
         ffmpeg_binary = get_ffmpeg_manager(hass).binary
@@ -202,6 +208,9 @@ def _async_register_services(hass: HomeAssistant) -> None:
     }
     hass.services.async_register(DOMAIN, SERVICE_ANSWER, _answer, vol.Schema(base))
     hass.services.async_register(DOMAIN, SERVICE_HANG_UP, _hang_up, vol.Schema(base))
+    hass.services.async_register(
+        DOMAIN, SERVICE_RESTART_VIDEO, _restart_video, vol.Schema(base)
+    )
     hass.services.async_register(
         DOMAIN, SERVICE_OPEN_LOCK, _open_lock, vol.Schema(base)
     )

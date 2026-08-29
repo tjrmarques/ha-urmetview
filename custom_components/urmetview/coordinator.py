@@ -407,6 +407,11 @@ class UrmetCoordinator:
         the reported station matches.
         """
         session = await self._async_with_video()
+        if self.station == target:
+            # The command cycles rather than selects, so acting here would
+            # visit the other station and come back - a visible flicker for
+            # what the user asked to be a no-op.
+            return True
         async with self._command_lock:
             for _ in range(MAX_CYCLE_ATTEMPTS):
                 current = await session.async_cycle_unit()
@@ -441,6 +446,29 @@ class UrmetCoordinator:
         if session is not None and session.connected and self._video_running:
             async with self._command_lock:
                 await session.async_set_quality(quality)
+        self._notify()
+
+    async def async_restart_video(self) -> None:
+        """Stop the device stream and start it again.
+
+        The picture going black is normal for this device - the stream simply
+        stops and there is no error anywhere - and there is otherwise no way
+        to ask for it back without waiting out the idle timeout. Re-picking
+        the station in the dropdown does not do it either: Home Assistant does
+        not call a select entity when the value has not changed.
+
+        The station is re-established afterwards rather than assumed, since a
+        fresh start_video may not land where the last one left off.
+        """
+        wanted = self.station
+        await self._async_stop_video()
+        # Whatever we knew about the station no longer holds across a restart.
+        self.station = None
+        await self._async_start_video()
+        if wanted is not None:
+            with contextlib.suppress(UrmetError):
+                await self.async_select_station(wanted)
+        _LOGGER.debug("Video restarted (station %s)", self.station)
         self._notify()
 
     async def async_answer(self) -> None:

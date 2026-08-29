@@ -106,6 +106,17 @@
     "hang_up": {
       "name": "Hang up",
       "description": "Release the call and the video channel so the phone app can take over."
+    },
+    "restart_video": {
+      "name": "Restart video",
+      "description": "Stop the device's video stream and start it again, keeping the current outdoor station. Use this when the picture goes black."
+    }
+  },
+  "entity": {
+    "button": {
+      "restart_video": {
+        "name": "Restart video"
+      }
     }
   }
 }

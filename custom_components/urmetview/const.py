@@ -56,6 +56,7 @@ SERVICE_SET_QUALITY: Final = "set_quality"
 SERVICE_TALK: Final = "talk"
 SERVICE_ANSWER: Final = "answer"
 SERVICE_HANG_UP: Final = "hang_up"
+SERVICE_RESTART_VIDEO: Final = "restart_video"
 
 ATTR_STATION: Final = "station"
 ATTR_QUALITY: Final = "quality"

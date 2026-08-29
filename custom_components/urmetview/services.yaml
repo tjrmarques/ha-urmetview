@@ -86,3 +86,14 @@ hang_up:
   target:
     device:
       integration: urmetview
+
+restart_video:
+  name: Restart video
+  description: >-
+    Stop the device's video stream and start it again, keeping the current
+    outdoor station. Use this when the picture goes black - the device stops
+    sending without reporting anything, and re-picking the station in the
+    dropdown will not trigger it because the value has not changed.
+  target:
+    device:
+      integration: urmetview
