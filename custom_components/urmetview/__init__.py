@@ -21,11 +21,13 @@ from .const import (
     CONF_DOORBELL_TZSP,
     CONF_DOORBELL_TZSP_PORT,
     CONF_QUALITY,
+    CONF_PIXEL_ASPECT,
     CONF_RING_PREWARM,
     CONF_STREAM_IDLE_TIMEOUT,
     CONF_TALK_REPEAT,
     CONF_UID,
     DEFAULT_STREAM_IDLE_TIMEOUT,
+    DEFAULT_PIXEL_ASPECT,
     DEFAULT_TZSP_PORT,
     DOMAIN,
     SERVICE_ANSWER,
@@ -77,6 +79,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         doorbell_port=entry.options.get(CONF_DOORBELL_TZSP_PORT, DEFAULT_TZSP_PORT),
         ring_prewarm=entry.options.get(CONF_RING_PREWARM, False),
         allow_cloud=entry.options.get(CONF_ALLOW_CLOUD, True),
+        pixel_aspect=entry.options.get(CONF_PIXEL_ASPECT, DEFAULT_PIXEL_ASPECT),
     )
 
     try:

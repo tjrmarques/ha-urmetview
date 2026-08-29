@@ -28,12 +28,15 @@ from .const import (
     CONF_AUTH_HASH,
     CONF_DOORBELL_TZSP,
     CONF_DOORBELL_TZSP_PORT,
+    CONF_PIXEL_ASPECT,
     CONF_QUALITY,
     CONF_RING_PREWARM,
     CONF_STREAM_IDLE_TIMEOUT,
     CONF_TALK_REPEAT,
     CONF_UID,
+    DEFAULT_PIXEL_ASPECT,
     DEFAULT_STREAM_IDLE_TIMEOUT,
+    PIXEL_ASPECT_OPTIONS,
     DEFAULT_TZSP_PORT,
     DOMAIN,
 )
@@ -224,6 +227,16 @@ class UrmetOptionsFlow(OptionsFlow):
                     ): SelectSelector(
                         SelectSelectorConfig(
                             options=QUALITY_OPTIONS, mode=SelectSelectorMode.DROPDOWN
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_PIXEL_ASPECT,
+                        default=options.get(CONF_PIXEL_ASPECT, DEFAULT_PIXEL_ASPECT),
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=PIXEL_ASPECT_OPTIONS,
+                            mode=SelectSelectorMode.DROPDOWN,
+                            custom_value=True,
                         )
                     ),
                     vol.Optional(

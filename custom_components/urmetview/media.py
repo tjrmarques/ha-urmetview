@@ -34,6 +34,17 @@ from .urmet.const import AUDIO_FRAME_BYTES, AUDIO_SAMPLE_RATE
 
 _LOGGER = logging.getLogger(__name__)
 
+#: MPEG-TS is a fixed 188-byte packet stream; consumers must be handed whole
+#: packets or they start mid-header and have to resynchronise.
+TS_PACKET_SIZE = 188
+#: The Program Association Table. ffmpeg emits it immediately before a
+#: keyframe, so it is the safe place to admit a new consumer.
+TS_PID_PAT = 0x0000
+#: Give up on a consumer whose socket backlog passes this, rather than buffer
+#: without limit for a reader that has stopped reading.
+MAX_CLIENT_BACKLOG = 4 * 1024 * 1024
+
+
 #: mu-law silence. Writing zero bytes would decode as a loud constant tone.
 SILENCE_BYTE = 0xFF
 SILENCE_FRAME = bytes([SILENCE_BYTE]) * AUDIO_FRAME_BYTES
@@ -49,9 +60,15 @@ FFMPEG_START_TIMEOUT = 15.0
 class MediaPipeline:
     """Muxes the device's streams and serves them on a local TCP port."""
 
-    def __init__(self, ffmpeg_binary: str, enable_audio: bool = True) -> None:
+    def __init__(
+        self,
+        ffmpeg_binary: str,
+        enable_audio: bool = True,
+        pixel_aspect: str = "",
+    ) -> None:
         self._ffmpeg_binary = ffmpeg_binary
         self._enable_audio = enable_audio
+        self._pixel_aspect = pixel_aspect
 
         self._video_server: asyncio.AbstractServer | None = None
         self._audio_server: asyncio.AbstractServer | None = None
@@ -61,6 +78,7 @@ class MediaPipeline:
         self._video_writer: asyncio.StreamWriter | None = None
         self._audio_writer: asyncio.StreamWriter | None = None
         self._out_clients: set[asyncio.StreamWriter] = set()
+        self._pending_clients: set[asyncio.StreamWriter] = set()
 
         self._pump_task: asyncio.Task[None] | None = None
         self._silence_task: asyncio.Task[None] | None = None
@@ -104,6 +122,23 @@ class MediaPipeline:
     def stream_url(self) -> str:
         return f"tcp://127.0.0.1:{self.out_port}"
 
+    async def async_ensure_relay(self) -> None:
+        """Open the output relay, once, and keep it for the entry's lifetime.
+
+        The port has to stay put. go2rtc caches a stream by its source URL, so
+        a relay that moves on every restart leaves it holding a producer that
+        points at a closed port - which shows up as a stream whose producer
+        list no longer parses, and playback failing while snapshots still
+        work, because snapshots do not go through go2rtc.
+        """
+        if self._out_server is not None:
+            return
+        self._out_server = await asyncio.start_server(
+            self._on_out_connect, "127.0.0.1", 0
+        )
+        self.out_port = self._out_server.sockets[0].getsockname()[1]
+        _LOGGER.debug("Stream relay listening on %s", self.out_port)
+
     # -- lifecycle ----------------------------------------------------------
 
     async def async_start(self) -> None:
@@ -123,10 +158,7 @@ class MediaPipeline:
             )
             self.audio_port = self._audio_server.sockets[0].getsockname()[1]
 
-        self._out_server = await asyncio.start_server(
-            self._on_out_connect, "127.0.0.1", 0
-        )
-        self.out_port = self._out_server.sockets[0].getsockname()[1]
+        await self.async_ensure_relay()
 
         self._seen_keyframe = False
         self._last_audio = loop.time()
@@ -176,6 +208,16 @@ class MediaPipeline:
                 f"tcp://127.0.0.1:{self.audio_port}",
             ]
         args += ["-c:v", "copy"]
+        if self._pixel_aspect:
+            # The device sends 960x240 with no aspect information, so players
+            # assume square pixels and stretch it. h264_metadata rewrites the
+            # SPS aspect field in the bitstream, which keeps -c:v copy - a
+            # scale filter would force a re-encode for what is a one-field
+            # correction.
+            args += [
+                "-bsf:v",
+                f"h264_metadata=sample_aspect_ratio={self._pixel_aspect}",
+            ]
         if self._enable_audio:
             args += ["-c:a", "aac", "-b:a", "64k", "-ar", "16000"]
         args += [
@@ -223,18 +265,30 @@ class MediaPipeline:
                 await _close_writer(writer)
         self._video_writer = self._audio_writer = None
 
-        for client in list(self._out_clients):
+        for client in list(self._out_clients | self._pending_clients):
             await _close_writer(client)
         self._out_clients.clear()
+        self._pending_clients.clear()
 
-        for server in (self._video_server, self._audio_server, self._out_server):
+        # The relay deliberately stays open - see async_ensure_relay.
+        for server in (self._video_server, self._audio_server):
             if server is not None:
                 server.close()
                 with contextlib.suppress(Exception):
                     await server.wait_closed()
-        self._video_server = self._audio_server = self._out_server = None
+        self._video_server = self._audio_server = None
 
         _LOGGER.debug("Media pipeline stopped")
+
+    async def async_shutdown(self) -> None:
+        """Stop everything, relay included. For unload, not for going idle."""
+        await self.async_stop()
+        if self._out_server is not None:
+            self._out_server.close()
+            with contextlib.suppress(Exception):
+                await self._out_server.wait_closed()
+            self._out_server = None
+            self.out_port = 0
 
     # -- ffmpeg input sockets ----------------------------------------------
 
@@ -323,35 +377,108 @@ class MediaPipeline:
     ) -> None:
         peer = writer.get_extra_info("peername")
         _LOGGER.debug("Stream consumer connected: %s", peer)
-        self._out_clients.add(writer)
+        # Held back until the next PAT - see _async_pump_output.
+        self._pending_clients.add(writer)
         try:
             await reader.read()
         except (OSError, ConnectionError):
             pass
         finally:
             self._out_clients.discard(writer)
+            self._pending_clients.discard(writer)
             await _close_writer(writer)
             _LOGGER.debug("Stream consumer disconnected: %s", peer)
 
     async def _async_pump_output(self) -> None:
-        """Fan ffmpeg's MPEG-TS output out to every connected consumer."""
+        """Fan ffmpeg's MPEG-TS out, starting each consumer at a PAT.
+
+        Two things have to be true for a late joiner to decode anything, and
+        neither comes for free from copying chunks as they arrive.
+
+        The stream is 188-byte packets, and ffmpeg's reads land wherever they
+        land, so a consumer handed a chunk boundary starts mid-packet and has
+        to resynchronise - which is where "Failed to parse header of NALU
+        (type 0)" comes from. So output is reassembled into whole packets
+        before it goes anywhere.
+
+        And a consumer that starts mid-GOP has P-frames referring to a
+        keyframe it never saw, which is a first frame and then nothing. New
+        consumers therefore wait, in _pending_clients, until the next PAT -
+        at most half a second, given -pat_period 0.5 - since ffmpeg emits the
+        table pair immediately before a keyframe.
+        """
         process = self._process
         if process is None or process.stdout is None:
             return
+        buffer = b""
         try:
             while True:
                 chunk = await process.stdout.read(16384)
                 if not chunk:
                     break
-                for client in list(self._out_clients):
-                    try:
-                        client.write(chunk)
-                    except (OSError, ConnectionError):
-                        self._out_clients.discard(client)
+                buffer += chunk
+
+                # Resynchronise if ffmpeg's first bytes are not a packet start.
+                if buffer[:1] != b"\x47":
+                    sync = buffer.find(b"\x47")
+                    if sync == -1:
+                        buffer = b""
+                        continue
+                    buffer = buffer[sync:]
+
+                whole = len(buffer) - (len(buffer) % TS_PACKET_SIZE)
+                if not whole:
+                    continue
+                packets, buffer = buffer[:whole], buffer[whole:]
+
+                if self._pending_clients:
+                    self._release_pending(packets)
+                self._broadcast(packets)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Media output pump failed")
+
+    def _release_pending(self, packets: bytes) -> None:
+        """Admit waiting consumers from the first PAT in this batch."""
+        for offset in range(0, len(packets), TS_PACKET_SIZE):
+            packet = packets[offset : offset + TS_PACKET_SIZE]
+            # PID is the low 13 bits of bytes 1-2; PID 0 is the PAT.
+            pid = ((packet[1] & 0x1F) << 8) | packet[2]
+            if pid != TS_PID_PAT:
+                continue
+            joining, self._pending_clients = self._pending_clients, set()
+            for client in joining:
+                self._out_clients.add(client)
+                self._write(client, packets[offset:])
+            _LOGGER.debug("Admitted %s consumer(s) at a PAT", len(joining))
+            return
+
+    def _broadcast(self, packets: bytes) -> None:
+        for client in list(self._out_clients):
+            self._write(client, packets)
+
+    def _write(self, client: asyncio.StreamWriter, data: bytes) -> None:
+        """Write, dropping a consumer that cannot keep up.
+
+        Without the backlog check a stalled reader is buffered without limit,
+        which trades a stuttering picture for unbounded memory.
+        """
+        try:
+            transport = client.transport
+            if (
+                transport is not None
+                and transport.get_write_buffer_size() > MAX_CLIENT_BACKLOG
+            ):
+                _LOGGER.debug("Dropping a stream consumer that fell too far behind")
+                self._out_clients.discard(client)
+                self._pending_clients.discard(client)
+                transport.abort()
+                return
+            client.write(data)
+        except (OSError, ConnectionError):
+            self._out_clients.discard(client)
+            self._pending_clients.discard(client)
 
     async def _async_drain_stderr(self) -> None:
         """Surface ffmpeg's complaints instead of letting the pipe fill up.

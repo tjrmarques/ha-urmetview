@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
@@ -30,7 +30,10 @@ class UrmetStreamStateSensor(UrmetEntity, SensorEntity):
     _attr_name = "Video channel"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:video"
-    _attr_device_class = None
+    # Options without the enum device class is a hard error in HA, and the
+    # entity is dropped entirely - which shows up as "no longer provided by
+    # the integration" against a registry entry nothing ever fills.
+    _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = ["idle", "streaming"]
 
     def __init__(self, coordinator: UrmetCoordinator) -> None:

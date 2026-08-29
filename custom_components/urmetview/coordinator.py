@@ -22,6 +22,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
+    DEFAULT_PIXEL_ASPECT,
     DEFAULT_STREAM_IDLE_TIMEOUT,
     DEFAULT_TZSP_PORT,
     SIGNAL_STATE_UPDATED,
@@ -62,6 +63,7 @@ class UrmetCoordinator:
         doorbell_port: int = DEFAULT_TZSP_PORT,
         ring_prewarm: bool = False,
         allow_cloud: bool = True,
+        pixel_aspect: str = DEFAULT_PIXEL_ASPECT,
     ) -> None:
         self.hass = hass
         self.entry_id = entry_id
@@ -79,7 +81,10 @@ class UrmetCoordinator:
         self.allow_cloud = allow_cloud
 
         self.session: UrmetSession | None = None
-        self.pipeline = MediaPipeline(ffmpeg_binary)
+        self.pipeline = MediaPipeline(
+            ffmpeg_binary,
+            pixel_aspect=pixel_aspect,
+        )
 
         self.available = False
         self.station: int | None = None
@@ -182,7 +187,7 @@ class UrmetCoordinator:
         if self._doorbell_transport is not None:
             self._doorbell_transport.close()
             self._doorbell_transport = None
-        await self.pipeline.async_stop()
+        await self.pipeline.async_shutdown()
         await self._async_disconnect()
 
     async def _async_connect(self) -> None:

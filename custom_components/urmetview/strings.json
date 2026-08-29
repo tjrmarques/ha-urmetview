@@ -44,7 +44,8 @@
           "doorbell_tzsp": "Doorbell via router mirror",
           "doorbell_tzsp_port": "Mirror listen port",
           "ring_prewarm": "Start video when the bell rings",
-          "allow_cloud": "Use Urmet's servers to find the device"
+          "allow_cloud": "Use Urmet's servers to find the device",
+          "pixel_aspect": "Picture aspect correction"
         },
         "data_description": {
           "stream_idle_timeout": "The video channel is released when nobody is watching, so the phone app can use it.",
@@ -53,7 +54,8 @@
           "doorbell_tzsp_port": "UDP port the mirror streams to. MikroTik's default is 37008.",
           "ring_prewarm": "The device does not send video on a ring - it must be pulled, which costs a few seconds. Enabling this starts the stream on each ring so a picture is ready sooner, but it takes the device's single video channel just as the phone app wants it to answer the call. Leave off if you still use the app.",
           "allow_cloud": "Discovery tries a LAN broadcast, then Urmet's rendezvous servers, then - if you set a Host - a local scan for the port. Turn this off to skip the cloud step, which sends the device UID to Urmet; discovery stays entirely local, but the port scan takes up to a minute or so.",
-          "quality": "Affects bitrate and frame rate, not resolution - the stream is 960x240 in every mode. HD roughly doubles the frame rate."
+          "quality": "Affects bitrate and frame rate, not resolution - the stream is 960x240 in every mode. HD roughly doubles the frame rate.",
+          "pixel_aspect": "The intercom sends 960x240 with no aspect information, so players stretch it. 1:2 squeezes it back to the right shape; leave empty to send the picture through untouched."
         }
       }
     }

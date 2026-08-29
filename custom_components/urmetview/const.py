@@ -19,6 +19,14 @@ CONF_PORT: Final = "port"
 CONF_USERNAME: Final = "username"
 
 # Options
+#: Sample (pixel) aspect ratio to stamp into the H.264 SPS. The device sends
+#: 960x240 with no aspect information, so players assume square pixels and the
+#: picture comes out twice as wide as it should be. "1:2" squeezes it back;
+#: empty leaves the bitstream untouched.
+CONF_PIXEL_ASPECT: Final = "pixel_aspect"
+DEFAULT_PIXEL_ASPECT: Final = "1:2"
+PIXEL_ASPECT_OPTIONS: Final = ["", "1:2", "1:1", "2:1", "3:4", "4:3"]
+
 CONF_QUALITY: Final = "quality"
 CONF_STREAM_IDLE_TIMEOUT: Final = "stream_idle_timeout"
 CONF_TALK_REPEAT: Final = "talk_repeat"
