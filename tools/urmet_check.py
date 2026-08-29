@@ -93,6 +93,30 @@ def collect(sock, seconds):
     return out
 
 
+def local_ip_towards(target):
+    """The address of the interface that would route to `target`.
+
+    Deliberately not gethostbyname(gethostname()) - that needs the machine's
+    own hostname to resolve, which routinely fails on macOS. A UDP connect()
+    sends nothing; it only asks the kernel to pick a route.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.connect((target, 1))
+        return sock.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        sock.close()
+
+
+def same_subnet(a, b):
+    """Same /24 - a good enough proxy for 'a broadcast can reach it'."""
+    if not a or not b:
+        return None
+    return a.rsplit(".", 1)[0] == b.rsplit(".", 1)[0]
+
+
 def udp_socket(broadcast=False, bind_port=0):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -104,7 +128,7 @@ def udp_socket(broadcast=False, bind_port=0):
 
 # --- 1. LAN search ----------------------------------------------------------
 
-def test_lan_search(uid, host, seconds=3.0):
+def test_lan_search(uid, host, seconds=3.0, same_net=None):
     print("=" * 70)
     print("1. PPPP LAN SEARCH  (unproven on this device - this is the real test)")
     print("=" * 70)
@@ -131,8 +155,13 @@ def test_lan_search(uid, host, seconds=3.0):
     sock.close()
 
     if not replies:
-        print("\n   RESULT: no reply. The device does not answer LAN search.")
-        print("   -> discovery must use the cloud or a port scan.")
+        if same_net is False:
+            print("\n   RESULT: INCONCLUSIVE - no reply, but this machine is not on")
+            print("   the device's subnet, so the broadcast could not have reached it.")
+            print("   Re-run from the device's VLAN before drawing any conclusion.")
+        else:
+            print("\n   RESULT: no reply. The device does not answer LAN search.")
+            print("   -> discovery must use the cloud or a port scan.")
         return None
     print()
     best = None
@@ -314,11 +343,20 @@ def main():
     args = ap.parse_args()
 
     print(f"\nUrmet network check - device {args.host}, UID {args.uid}")
-    print(f"Running from {socket.gethostbyname(socket.gethostname())} "
-          f"(must be on the device's subnet for test 1 to mean anything)\n")
+    mine = local_ip_towards(args.host)
+    shared = same_subnet(mine, args.host)
+    print(f"Running from {mine or 'unknown address'}")
+    if shared is False:
+        print(f"  WARNING: {mine} is not on the same /24 as {args.host}. A broadcast")
+        print("  cannot cross subnets, so test 1 will fail regardless of whether the")
+        print("  device supports LAN search. Move this machine onto the device's VLAN")
+        print("  for that result to mean anything.")
+    elif shared:
+        print("  Same subnet as the device - test 1 is meaningful.")
+    print()
 
     summary = {}
-    summary["lan_search"] = test_lan_search(args.uid, args.host)
+    summary["lan_search"] = test_lan_search(args.uid, args.host, same_net=shared)
     print()
     if args.listen:
         test_broadcast()
@@ -334,7 +372,13 @@ def main():
     print("SUMMARY")
     print("=" * 70)
     lan = summary.get("lan_search")
-    print(f"  LAN search : {'WORKS, port %s' % lan[1] if lan else 'no reply'}")
+    if lan:
+        lan_text = "WORKS, port %s" % lan[1]
+    elif shared is False:
+        lan_text = "inconclusive (wrong subnet)"
+    else:
+        lan_text = "no reply"
+    print(f"  LAN search : {lan_text}")
     cloud = summary.get("cloud")
     print(f"  Cloud      : {'works -> %s' % (cloud[0],) if cloud else 'no candidates'}")
     sweep = summary.get("sweep")
