@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Urmet intercom",
-        "description": "The auth hash is captured once from a real app login - it cannot be derived from the device password. See the README for how to get it. Host and port are optional; leave them blank to discover the device automatically.",
+        "description": "Connects to an Urmet Kit 1730 intercom over its local protocol.\n\n**You need two things from the device**, both explained in the [setup guide](https://github.com/tjrmarques/ha-urmetview#1-get-your-auth-hash):\n\n- the **Device UID**, printed on the WiFi module and broadcast on your network, e.g. `URMABB-700171-SMCYN`\n- the **Auth hash**, 32 hex characters captured once from a real UrmetView app login. It cannot be derived from the device password.\n\nLeave Host and Session port blank unless discovery fails — the port changes every session and is found automatically.",
         "data": {
           "uid": "Device UID",
           "auth_hash": "Auth hash",
@@ -13,7 +13,12 @@
           "allow_cloud": "Allow lookup via Urmet's servers"
         },
         "data_description": {
-          "allow_cloud": "Discovery tries a local broadcast first, which works when Home Assistant shares a subnet with the intercom. Leave this on to fall back to Urmet's servers if that fails - it sends the device UID to them. Turn it off to keep setup entirely local; then set Host so the port can be found by scanning."
+          "uid": "Format PREFIX-NUMBER-SUFFIX, e.g. URMABB-700171-SMCYN.",
+          "auth_hash": "32 hexadecimal characters. Capture it once from an app login (filter a packet capture for \"username\":\"admin\") and treat it like a password - it is static and can open your door.",
+          "host": "Only needed if the intercom is not found automatically, or if Home Assistant is not on the same subnet as it.",
+          "port": "Leave blank. The device picks a new one each session, so a fixed value goes stale; it is only useful for a one-off test.",
+          "allow_cloud": "Discovery tries a local broadcast first, which works when Home Assistant shares a subnet with the intercom. Leave this on to fall back to Urmet's servers if that fails - it sends the device UID to them. Turn it off to keep setup entirely local; then set Host so the port can be found by scanning.",
+          "username": "Always 'admin' on this device. Change it only if yours differs."
         }
       }
     },
@@ -47,7 +52,8 @@
           "doorbell_tzsp": "The ring is a cloud push, so it never reaches Home Assistant directly. If your router can mirror the device's traffic here (MikroTik: stream to this host as TZSP), rings become a local event. Off by default.",
           "doorbell_tzsp_port": "UDP port the mirror streams to. MikroTik's default is 37008.",
           "ring_prewarm": "The device does not send video on a ring - it must be pulled, which costs a few seconds. Enabling this starts the stream on each ring so a picture is ready sooner, but it takes the device's single video channel just as the phone app wants it to answer the call. Leave off if you still use the app.",
-          "allow_cloud": "Discovery tries a LAN broadcast, then Urmet's rendezvous servers, then - if you set a Host - a local scan for the port. Turn this off to skip the cloud step, which sends the device UID to Urmet; discovery stays entirely local, but the port scan takes up to a minute or so."
+          "allow_cloud": "Discovery tries a LAN broadcast, then Urmet's rendezvous servers, then - if you set a Host - a local scan for the port. Turn this off to skip the cloud step, which sends the device UID to Urmet; discovery stays entirely local, but the port scan takes up to a minute or so.",
+          "quality": "Affects bitrate and frame rate, not resolution - the stream is 960x240 in every mode. HD roughly doubles the frame rate."
         }
       }
     }

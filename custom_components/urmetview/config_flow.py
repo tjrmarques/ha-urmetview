@@ -121,12 +121,6 @@ class UrmetConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=self._schema(user_input),
             errors=errors,
-            description_placeholders={
-                "hint": (
-                    "The auth hash cannot be derived from the device password - "
-                    "capture it once from an app login (see the README)."
-                )
-            },
         )
 
     def _schema(self, user_input: dict[str, Any] | None) -> vol.Schema:
