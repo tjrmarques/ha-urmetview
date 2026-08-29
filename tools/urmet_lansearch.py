@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
 """Why is LAN search not answering? One question per test, no shotgun.
 
 The main check sprays every probe at every target at every port and waits, so
@@ -14,8 +18,8 @@ That is the distinction that matters:
             arrived (on WiFi, broadcast is the usual suspect)
   reply     works - and the source port tells us where the session should go
 
-    python3 tools/urmet_lansearch.py --host 10.0.50.6
-    python3 tools/urmet_lansearch.py --host 10.0.50.6 --also 10169,20116,23691
+    uv run tools/urmet_lansearch.py --host 10.0.50.6
+    uv run tools/urmet_lansearch.py --host 10.0.50.6 --also 10169,20116,23691
 """
 
 from __future__ import annotations

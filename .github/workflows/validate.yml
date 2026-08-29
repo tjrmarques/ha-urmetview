@@ -28,9 +28,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install ruff
-      - run: ruff check custom_components tools
-      - run: ruff format --check custom_components tools
+      - uses: astral-sh/setup-uv@v5
+      - run: uvx ruff check custom_components tools tests
+      - run: uvx ruff format --check custom_components tools tests
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run --with pytest pytest tests/ -q

@@ -152,7 +152,7 @@ it has to be lifted once from a real app login and then stored like a password.
 Capture traffic while opening the UrmetView app, then:
 
 ```bash
-python3 tools/urmet_pcap.py capture.pcap
+uv run tools/urmet_pcap.py capture.pcap
 ```
 
 It prints the hash, plus a traffic summary that tells you whether the capture is
@@ -165,8 +165,8 @@ The session port changes every session and is not announced on the LAN, so it
 has to be rediscovered each time.
 
 ```bash
-python3 tools/urmet_probe.py --broadcast              # find the device's IP and UID
-python3 tools/urmet_probe.py --host 10.0.50.6 --sweep # find the current port
+uv run tools/urmet_probe.py --broadcast              # find the device's IP and UID
+uv run tools/urmet_probe.py --host 10.0.50.6 --sweep # find the current port
 ```
 
 `urmet_probe.py` tries each method independently and reports which ones work.
@@ -220,7 +220,7 @@ logger:
 | `Cloud lookup returned no candidates` | Outbound UDP 32100 is blocked, or `*.caycctv.com` does not resolve. |
 | `Could not locate the intercom by any method` | Set both Host and Port explicitly to bypass discovery. |
 
-`python3 tools/urmet_probe.py --host <ip>` runs the same steps from a laptop
+`uv run tools/urmet_probe.py --host <ip>` runs the same steps from a laptop
 and prints the outcome of every one, including which port each answered from.
 Run it from a machine on the intercom's subnet — from anywhere else the LAN
 search result is meaningless rather than negative.
@@ -228,7 +228,7 @@ search result is meaningless rather than negative.
 ### 3. Watch the video
 
 ```bash
-python3 tools/urmet_cli.py --auth <hash> --host <ip> --port <port> video --serve
+uv run tools/urmet_cli.py --auth <hash> --host <ip> --port <port> video --serve
 # then, in another terminal:
 ffplay -f h264 -i tcp://127.0.0.1:5599 -fflags nobuffer -flags low_delay
 ```
@@ -236,9 +236,9 @@ ffplay -f h264 -i tcp://127.0.0.1:5599 -fflags nobuffer -flags low_delay
 ### 4. Open things
 
 ```bash
-python3 tools/urmet_cli.py --auth <hash> station 2   # switch outdoor station
-python3 tools/urmet_cli.py --auth <hash> lock        # release the door lock
-python3 tools/urmet_cli.py --auth <hash> gate        # release the gate
+uv run tools/urmet_cli.py --auth <hash> station 2   # switch outdoor station
+uv run tools/urmet_cli.py --auth <hash> lock        # release the door lock
+uv run tools/urmet_cli.py --auth <hash> gate        # release the gate
 ```
 
 Lock and gate act on whichever station is currently selected — that is a device

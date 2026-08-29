@@ -5,7 +5,7 @@ docs/protocol.md. These are the assertions that catch the framing mistakes the
 spec calls out as easy to make - off-by-four lengths, ASCII-encoded UID
 numbers, and NUL bytes left out of a length field.
 
-    python3 -m pytest tests/ -q      (or just: python3 tests/test_protocol.py)
+    python3 -m pytest tests/ -q      (or just: uv run tests/test_protocol.py)
 """
 
 from __future__ import annotations

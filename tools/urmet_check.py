@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
 """Standalone network check for the Urmet intercom - one file, stdlib only.
 
 Run this from a machine on the SAME subnet as the intercom. It answers the
@@ -10,10 +14,10 @@ questions the integration cannot answer for itself:
      (the spec and the working prototype disagree; this decides it)
   4. Can the session port be found by scanning locally?
 
-    python3 urmet_check.py
-    python3 urmet_check.py --host 10.0.50.6 --uid URMABB-700171-SMCYN
-    python3 urmet_check.py --listen          # also wait for the 6688 announce
-    python3 urmet_check.py --skip-sweep      # skip the slow part
+    uv run urmet_check.py
+    uv run urmet_check.py --host 10.0.50.6 --uid URMABB-700171-SMCYN
+    uv run urmet_check.py --listen          # also wait for the 6688 announce
+    uv run urmet_check.py --skip-sweep      # skip the slow part
 
 Nothing here writes to the device or opens a session - it only sends discovery
 probes and reads replies.

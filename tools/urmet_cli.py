@@ -1,15 +1,19 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
 """General-purpose CLI: video, station selection, lock and gate.
 
     # watch live (then: ffplay -f h264 -i tcp://127.0.0.1:5599 -fflags nobuffer)
-    python3 tools/urmet_cli.py --auth <hash> video --serve
+    uv run tools/urmet_cli.py --auth <hash> video --serve
 
     # record 10s of raw H.264
-    python3 tools/urmet_cli.py --auth <hash> video --out clip.h264 --duration 10
+    uv run tools/urmet_cli.py --auth <hash> video --out clip.h264 --duration 10
 
     # switch to outdoor station 2, then release the lock there
-    python3 tools/urmet_cli.py --auth <hash> station 2
-    python3 tools/urmet_cli.py --auth <hash> lock
+    uv run tools/urmet_cli.py --auth <hash> station 2
+    uv run tools/urmet_cli.py --auth <hash> lock
 
 Video is started before any command because the device answers 'busy' to
 station/lock/gate otherwise. The session is always torn down on exit - skipping

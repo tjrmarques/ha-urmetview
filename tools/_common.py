@@ -3,7 +3,7 @@
 Puts the protocol core on sys.path so these run straight from a checkout with
 no install step and no third-party packages:
 
-    python3 tools/urmet_probe.py --help
+    uv run tools/urmet_probe.py --help
 """
 
 from __future__ import annotations

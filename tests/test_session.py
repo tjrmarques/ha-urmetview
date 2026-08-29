@@ -1,6 +1,6 @@
 """Session behaviour that is easy to get wrong and invisible when it is.
 
-    python3 tests/test_session.py
+    uv run tests/test_session.py
 """
 
 from __future__ import annotations

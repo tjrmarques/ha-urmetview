@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
 """Local doorbell trigger, by mirroring the device's cloud traffic.
 
 The ring is a cloud push to registered smartphones - nothing is sent on the LAN,
@@ -21,7 +25,7 @@ protocol/port/connection-state matchers - but expect video to come with it.
 
 Then here:
 
-    python3 tools/urmet_tzsp.py --device-ip 10.0.50.6
+    uv run tools/urmet_tzsp.py --device-ip 10.0.50.6
 
 The ring is a TCP connection to port 32002 on the push servers, made the
 instant the button is pressed. Note the sniffer filter must NOT be limited to

@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
 """Sit on a logged-in session and log everything the device sends unprompted.
 
 This is capture 3: it answers whether the doorbell ring reaches a client that is
@@ -9,7 +13,7 @@ free so the phone app still works, and it keeps the traffic to a trickle so a
 router-side packet capture will not hit its size limit while you walk to the
 door and back.
 
-    python3 tools/urmet_listen.py --auth <hash> --host 10.0.50.6 --port 20043
+    uv run tools/urmet_listen.py --auth <hash> --host 10.0.50.6 --port 20043
 
 Then ring the bell and watch. Anything that appears in the "UNSOLICITED" section
 is a message the device sent on its own - which is what a ring would look like.

@@ -1,11 +1,15 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
 """Pull the login auth hash (and other useful fields) out of a packet capture.
 
 The auth hash cannot be derived from the device password - the derivation was
 tested extensively and never reproduced - so it has to be lifted once from a
 real app login and then stored as the credential. This finds it.
 
-    python3 tools/urmet_pcap.py capture.pcap
+    uv run tools/urmet_pcap.py capture.pcap
 
 Capture a login by starting the sniffer, then opening the UrmetView app.
 

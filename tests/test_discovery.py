@@ -6,7 +6,7 @@ dead address. That only surfaces later as ECONNREFUSED and a login that never
 completes, so it is worth pinning down here with a device that behaves the
 same way.
 
-    python3 tests/test_discovery.py
+    uv run tests/test_discovery.py
 """
 
 from __future__ import annotations

@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
 """Push-to-talk spike: send audio out of the door station's speaker.
 
 This is the first half of the PTT feature, deliberately built before any UI. If
@@ -6,10 +10,10 @@ mu-law frames do not come out of the speaker from a plain CLI, no amount of
 Lovelace card work will help - so prove the audio path here first.
 
     # say something (any ffmpeg-readable file or URL)
-    python3 tools/urmet_talk.py --auth <hash> --file hello.wav
+    uv run tools/urmet_talk.py --auth <hash> --file hello.wav
 
     # or a test tone, if you just want to hear *anything*
-    python3 tools/urmet_talk.py --auth <hash> --tone
+    uv run tools/urmet_talk.py --auth <hash> --tone
 
 Requires ffmpeg on PATH for the transcode to 8 kHz mono mu-law.
 

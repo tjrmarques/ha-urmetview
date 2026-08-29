@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
 """Find the device's current session port, and work out which method works.
 
 The session port changes every session and is not in the LAN broadcast, so it
@@ -7,13 +11,13 @@ result of every one - the point is not just to get a port, it is to learn which
 method we can rely on so the integration can stop depending on Urmet's cloud.
 
     # try everything except the sweep
-    python3 tools/urmet_probe.py --uid URMABB-700171-SMCYN
+    uv run tools/urmet_probe.py --uid URMABB-700171-SMCYN
 
     # include the brute-force sweep (needs --host, takes 30-90s)
-    python3 tools/urmet_probe.py --host 10.0.50.6 --sweep
+    uv run tools/urmet_probe.py --host 10.0.50.6 --sweep
 
     # just listen for the device's own announcement
-    python3 tools/urmet_probe.py --broadcast
+    uv run tools/urmet_probe.py --broadcast
 
 The interesting result is whether LAN search works. If it does, the integration
 never needs to talk to Urmet's servers at all.
