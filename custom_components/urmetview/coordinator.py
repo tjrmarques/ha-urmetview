@@ -98,6 +98,7 @@ class UrmetCoordinator:
         # sees _video_running False and issues a second start_video, and the
         # device answers the loser 'video busy'.
         self._video_lock = asyncio.Lock()
+        self._restarting = False
         self._video_running = False
         self._last_activity = 0.0
         self._idle_task: asyncio.Task[None] | None = None
@@ -484,10 +485,23 @@ class UrmetCoordinator:
         The station is re-established afterwards rather than assumed, since a
         fresh start_video may not land where the last one left off.
         """
+        if self._restarting:
+            # A second click while the first is still going. Queuing it would
+            # tear down the stream that is being brought up and do the whole
+            # thing again, so the button stays responsive by ignoring it.
+            _LOGGER.debug("Restart already in progress, ignoring this one")
+            return
         wanted = self.station
         # Held across both halves: a stream_source() landing in the gap would
         # otherwise start the video itself and one of the two starts would come
         # back "video busy".
+        self._restarting = True
+        try:
+            await self._async_restart_video_inner(wanted)
+        finally:
+            self._restarting = False
+
+    async def _async_restart_video_inner(self, wanted: int | None) -> None:
         async with self._video_lock:
             await self._async_stop_video_locked()
             # What we knew about the station does not hold across a restart.
