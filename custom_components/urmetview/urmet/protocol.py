@@ -133,11 +133,32 @@ def pack_uid_short(uid: str) -> bytes:
 
 
 def pack_uid_long(uid: str, local_port: int) -> bytes:
-    """36-byte form used by the cloud lookup request (section 2b)."""
+    """36-byte cloud lookup form, with the port at offset 20 (spec section 2b).
+
+    The spec and the working prototype disagree about where the port goes, and
+    the spec also records that a bad packing is answered with status 0xfd - so
+    getting this wrong looks exactly like "the cloud lookup silently fails".
+    Callers should try :func:`pack_uid_long_alt` as well rather than choose.
+    """
+    return pack_uid_short(uid) + local_port.to_bytes(2, "little") + b"\x00" * 14
+
+
+def pack_uid_long_alt(uid: str, local_port: int) -> bytes:
+    """Same, but with the port at offset 22 - the layout the prototype used.
+
+    Byte-for-byte what ``urmet_client.py`` sent, which is the version actually
+    observed working against the real servers. Two zero bytes of the short
+    form's trailing padding are pushed out to make room.
+    """
+    prefix, number, suffix = split_uid(uid)
     return (
-        pack_uid_short(uid)
+        prefix.encode("ascii")
+        + b"\x00\x00\x00"
+        + number.to_bytes(3, "big")
+        + suffix.encode("ascii")
+        + b"\x00" * 5
         + local_port.to_bytes(2, "little")
-        + b"\x00" * 14
+        + b"\x00" * 12
     )
 
 
@@ -349,6 +370,10 @@ def build_cloud_hello() -> bytes:
 
 def build_cloud_lookup(uid: str, local_port: int) -> bytes:
     return build_simple(MSG_CLOUD_LOOKUP, pack_uid_long(uid, local_port))
+
+
+def build_cloud_lookup_alt(uid: str, local_port: int) -> bytes:
+    return build_simple(MSG_CLOUD_LOOKUP, pack_uid_long_alt(uid, local_port))
 
 
 @dataclass(frozen=True)

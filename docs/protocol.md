@@ -182,6 +182,22 @@ offset 20-21: our own local UDP port, 2 bytes little-endian
 offset 22-35: 00 * 14 (zero padding, reserved)
 ```
 
+> **Unresolved conflict — this document and the working prototype disagree.**
+> `urmet_client.py`, the client observed working against the real servers,
+> writes five zero bytes after the suffix and puts the port at **offset 22-23**,
+> followed by twelve zero bytes:
+> ```
+> offset 17-21: 00 * 5
+> offset 22-23: local UDP port, 2 bytes little-endian
+> offset 24-35: 00 * 12
+> ```
+> Both forms are 36 bytes, so a length check cannot tell them apart, and a bad
+> packing is answered with a status byte (`0xfd`) rather than an error a client
+> would notice — it simply looks like the lookup silently returned nothing.
+> The integration therefore sends **both** variants and uses whichever gets a
+> candidate. Whichever the device accepts should be recorded here and the other
+> removed.
+
 ### 2c. Broadcast form (LAN discovery, UDP 6688) — literal ASCII, different layout
 
 The periodic LAN discovery broadcast uses a completely different, much

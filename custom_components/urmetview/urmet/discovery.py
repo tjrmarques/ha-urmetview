@@ -170,10 +170,18 @@ async def async_cloud_lookup(uid: str, timeout: float = 4.0) -> list[Candidate]:
             with contextlib.suppress(OSError):
                 transport.sendto(hello, (server, p.CLOUD_PORT))
         await asyncio.sleep(0.3)
-        lookup = p.build_cloud_lookup(uid, local_port)
-        for server in servers:
-            with contextlib.suppress(OSError):
-                transport.sendto(lookup, (server, p.CLOUD_PORT))
+        # Send both UID packings. The spec puts our port at offset 20, the
+        # prototype that was actually observed working puts it at 22, and a
+        # wrong packing is rejected with a status byte rather than an error we
+        # would notice. Sending both costs one extra datagram per server.
+        lookups = (
+            p.build_cloud_lookup(uid, local_port),
+            p.build_cloud_lookup_alt(uid, local_port),
+        )
+        for lookup in lookups:
+            for server in servers:
+                with contextlib.suppress(OSError):
+                    transport.sendto(lookup, (server, p.CLOUD_PORT))
         await asyncio.sleep(timeout)
     finally:
         transport.close()
@@ -183,12 +191,15 @@ async def async_cloud_lookup(uid: str, timeout: float = 4.0) -> list[Candidate]:
         response = p.parse_cloud_response(data)
         if response is None:
             continue
-        if response.status is not None and response.status != 0:
-            _LOGGER.warning(
-                "Cloud rejected the lookup (status 0x%02x) - the UID packing is the "
-                "usual cause",
-                response.status,
-            )
+        if response.status is not None:
+            if response.status == 0:
+                _LOGGER.debug("Cloud accepted the lookup")
+            else:
+                _LOGGER.warning(
+                    "Cloud rejected a lookup (status 0x%02x). Both UID packings were "
+                    "sent, so one rejection is expected if the other was accepted.",
+                    response.status,
+                )
             continue
         if response.is_candidate and response.host and response.port:
             candidate = Candidate(response.host, response.port, "cloud")

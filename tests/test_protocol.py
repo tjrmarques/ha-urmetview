@@ -232,3 +232,21 @@ def _run_standalone() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(_run_standalone())
+
+
+def test_both_cloud_uid_packings_are_36_bytes_and_differ():
+    """The spec and the working prototype disagree on where the port sits.
+
+    Spec section 2b puts it at offset 20; urmet_client.py put it at 22 and is
+    the version observed working. A wrong packing is answered with a status
+    byte rather than a visible error, so discovery sends both.
+    """
+    spec = p.pack_uid_long(UID, 0x1234)
+    alt = p.pack_uid_long_alt(UID, 0x1234)
+    assert len(spec) == len(alt) == 36
+    assert spec != alt
+    # Same identity, different port placement.
+    assert spec[:20] == p.pack_uid_short(UID)
+    assert spec[20:22] == b"\x34\x12"
+    assert alt[22:24] == b"\x34\x12"
+    assert alt[:17] == spec[:17]
