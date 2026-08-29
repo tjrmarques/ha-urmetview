@@ -64,6 +64,7 @@ class UrmetCoordinator:
         ring_prewarm: bool = False,
         allow_cloud: bool = True,
         pixel_aspect: str = DEFAULT_PIXEL_ASPECT,
+        stream_audio: bool = True,
     ) -> None:
         self.hass = hass
         self.entry_id = entry_id
@@ -83,6 +84,7 @@ class UrmetCoordinator:
         self.session: UrmetSession | None = None
         self.pipeline = MediaPipeline(
             ffmpeg_binary,
+            enable_audio=stream_audio,
             pixel_aspect=pixel_aspect,
         )
 

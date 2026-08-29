@@ -30,6 +30,7 @@ from .const import (
     CONF_DOORBELL_TZSP_PORT,
     CONF_PIXEL_ASPECT,
     CONF_QUALITY,
+    CONF_STREAM_AUDIO,
     CONF_RING_PREWARM,
     CONF_STREAM_IDLE_TIMEOUT,
     CONF_TALK_REPEAT,
@@ -229,6 +230,10 @@ class UrmetOptionsFlow(OptionsFlow):
                             options=QUALITY_OPTIONS, mode=SelectSelectorMode.DROPDOWN
                         )
                     ),
+                    vol.Optional(
+                        CONF_STREAM_AUDIO,
+                        default=options.get(CONF_STREAM_AUDIO, True),
+                    ): bool,
                     vol.Optional(
                         CONF_PIXEL_ASPECT,
                         default=options.get(CONF_PIXEL_ASPECT, DEFAULT_PIXEL_ASPECT),

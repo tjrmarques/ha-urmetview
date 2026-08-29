@@ -22,6 +22,7 @@ from .const import (
     CONF_DOORBELL_TZSP_PORT,
     CONF_QUALITY,
     CONF_PIXEL_ASPECT,
+    CONF_STREAM_AUDIO,
     CONF_RING_PREWARM,
     CONF_STREAM_IDLE_TIMEOUT,
     CONF_TALK_REPEAT,
@@ -81,6 +82,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ring_prewarm=entry.options.get(CONF_RING_PREWARM, False),
         allow_cloud=entry.options.get(CONF_ALLOW_CLOUD, True),
         pixel_aspect=entry.options.get(CONF_PIXEL_ASPECT, DEFAULT_PIXEL_ASPECT),
+        stream_audio=entry.options.get(CONF_STREAM_AUDIO, True),
     )
 
     try:

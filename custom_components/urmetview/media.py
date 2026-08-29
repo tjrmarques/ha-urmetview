@@ -220,6 +220,21 @@ class MediaPipeline:
             # arrival time rather than trusting absent timestamps.
             "-use_wallclock_as_timestamps",
             "1",
+            # Inputs are opened in order, and ffmpeg finishes probing this one
+            # before it even connects to the audio socket - measured at 8.2s on
+            # a live device, during which nothing is muxed at all. The format
+            # is stated explicitly, so there is nothing to detect and a short
+            # probe costs nothing.
+            "-analyzeduration",
+            "0",
+            # Not smaller: at 32 bytes ffmpeg cannot estimate the frame rate
+            # and says so. 100KB still completes almost immediately on a live
+            # stream and keeps the estimate.
+            "-probesize",
+            "100000",
+            # A live input that blocks stalls the whole mux, video included.
+            "-thread_queue_size",
+            "512",
             "-f",
             "h264",
             "-i",
@@ -235,6 +250,8 @@ class MediaPipeline:
                 "1",
                 "-use_wallclock_as_timestamps",
                 "1",
+                "-thread_queue_size",
+                "512",
                 "-i",
                 f"tcp://127.0.0.1:{self.audio_port}",
             ]

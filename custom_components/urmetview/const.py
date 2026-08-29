@@ -19,6 +19,11 @@ CONF_PORT: Final = "port"
 CONF_USERNAME: Final = "username"
 
 # Options
+#: Include the device's audio in the stream. Turning it off makes the pipeline
+#: a single-input remux, which is what a plain "H.264 to ffplay" setup is - so
+#: it is also the way to tell a muxing problem from a stream problem.
+CONF_STREAM_AUDIO: Final = "stream_audio"
+
 #: Sample (pixel) aspect ratio to stamp into the H.264 SPS. The device sends
 #: 960x240 with no aspect information, so players assume square pixels and the
 #: picture comes out twice as wide as it should be. "1/2" squeezes it back;
