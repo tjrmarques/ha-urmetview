@@ -89,24 +89,40 @@ async def async_lan_search(
     """Broadcast ``MSG_LAN_SEARCH`` and see who answers.
 
     In PPPP the device replies from the port it is actually serving sessions on,
-    which is exactly the value the cloud lookup exists to tell us. If this works
-    on this device, the integration never needs the cloud at all.
+    which is exactly the value the cloud lookup exists to tell us. If it works
+    here, the integration never needs Urmet's servers at all.
+
+    **Unverified on this device.** The transport is confirmed PPPP/CS2 - every
+    message type matches the published table - but no capture contains a single
+    LAN-search packet or any traffic on 32108, and the phone app never sends
+    one. The captures cannot settle it either way: the phone was on a different
+    subnet from the intercom, so a broadcast could not have reached it.
+
+    Two probe encodings are sent because implementations disagree on whether
+    the magic byte is included, and a wrong guess fails silently - the same
+    trap as the cloud lookup's UID packing.
     """
     transport, collector = await _open(broadcast=True)
-    packet = p.build_simple(0x30)
+    probes = (
+        p.build_simple(0x30),   # f1 30 00 00, the common encoding
+        bytes([0x30, 0x00]),    # bare, as some implementations send it
+    )
     try:
-        for port in ports:
-            with contextlib.suppress(OSError):
-                transport.sendto(packet, (broadcast_addr, port))
+        for probe in probes:
+            for port in ports:
+                with contextlib.suppress(OSError):
+                    transport.sendto(probe, (broadcast_addr, port))
         await asyncio.sleep(timeout)
     finally:
         transport.close()
 
     found: dict[tuple[str, int], Candidate] = {}
     for (host, port), data in collector.packets:
+        # Log anything at all - an unexpected reply shape is far more useful to
+        # see than to filter away, given this path is unproven.
+        _LOGGER.debug("LAN search: %s:%s sent %s", host, port, data[:32].hex(" "))
         if len(data) < 2 or data[0] != p.MAGIC:
             continue
-        _LOGGER.debug("LAN search reply from %s:%s -> %s", host, port, data[:32].hex(" "))
         found.setdefault((host, port), Candidate(host, port, f"lan-search type=0x{data[1]:02x}"))
     return list(found.values())
 
