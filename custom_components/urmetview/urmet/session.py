@@ -395,12 +395,16 @@ class UrmetSession(asyncio.DatagramProtocol):
             except (OSError, UrmetError):
                 _LOGGER.debug("Ack send failed", exc_info=True)
 
-        reassembler = self._reassemblers.setdefault(packet.channel, _ChannelReassembler())
+        reassembler = self._reassemblers.setdefault(
+            packet.channel, _ChannelReassembler()
+        )
         for payload in reassembler.push(packet.seq, packet.payload):
             try:
                 self._process_payload(payload)
             except Exception:  # noqa: BLE001 - one bad payload must not kill the socket
-                _LOGGER.exception("Error processing payload on channel %s", packet.channel)
+                _LOGGER.exception(
+                    "Error processing payload on channel %s", packet.channel
+                )
 
     def _process_payload(self, payload: bytes) -> None:
         """Route one in-order payload.

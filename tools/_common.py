@@ -32,7 +32,9 @@ __all__ = [
 ]
 
 
-def add_common_args(parser: argparse.ArgumentParser, auth_required: bool = True) -> None:
+def add_common_args(
+    parser: argparse.ArgumentParser, auth_required: bool = True
+) -> None:
     parser.add_argument("--host", help="device LAN IP (skips discovery)")
     parser.add_argument(
         "--port", type=int, help="device session port (skips port discovery)"

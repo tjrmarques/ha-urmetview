@@ -109,20 +109,27 @@ async def _cmd_video(session: UrmetSession, args: argparse.Namespace) -> int:
 
     server = None
     if args.serve:
-        async def on_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+
+        async def on_client(
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        ) -> None:
             print("  ffplay connected")
             sink.add_client(writer)
             with contextlib.suppress(Exception):
                 await reader.read()
 
         server = await asyncio.start_server(on_client, "127.0.0.1", args.tcp_port)
-        print(f"\n  ffplay -f h264 -i tcp://127.0.0.1:{args.tcp_port} "
-              f"-fflags nobuffer -flags low_delay -framedrop\n")
+        print(
+            f"\n  ffplay -f h264 -i tcp://127.0.0.1:{args.tcp_port} "
+            f"-fflags nobuffer -flags low_delay -framedrop\n"
+        )
 
     if args.station:
         await async_select_station(session, args.station)
 
-    deadline = asyncio.get_running_loop().time() + args.duration if args.duration else None
+    deadline = (
+        asyncio.get_running_loop().time() + args.duration if args.duration else None
+    )
     try:
         while deadline is None or asyncio.get_running_loop().time() < deadline:
             await asyncio.sleep(2.0)
@@ -200,9 +207,13 @@ def main() -> int:
     video.add_argument("--quality", default="sd", choices=["ld", "sd", "hd"])
     video.add_argument("--duration", type=float, default=0.0, help="0 = until Ctrl-C")
     video.add_argument("--out", help="write raw H.264 here")
-    video.add_argument("--serve", action="store_true", help="serve H.264 on a local TCP port")
+    video.add_argument(
+        "--serve", action="store_true", help="serve H.264 on a local TCP port"
+    )
     video.add_argument("--tcp-port", type=int, default=5599)
-    video.add_argument("--station", type=int, choices=[1, 2], help="switch station first")
+    video.add_argument(
+        "--station", type=int, choices=[1, 2], help="switch station first"
+    )
 
     station = sub.add_parser("station", help="select an outdoor station")
     station.add_argument("which", type=int, choices=[1, 2])

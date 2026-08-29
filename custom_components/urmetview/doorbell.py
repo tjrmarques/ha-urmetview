@@ -179,12 +179,21 @@ def parse_packet(frame: bytes) -> Packet | None:
 
     if proto == socket.IPPROTO_UDP:
         length = struct.unpack(">H", frame[head + 4 : head + 6])[0]
-        return Packet(proto, src, dst, sport, dport, frame[head + 8 : head + 8 + max(0, length - 8)])
+        return Packet(
+            proto,
+            src,
+            dst,
+            sport,
+            dport,
+            frame[head + 8 : head + 8 + max(0, length - 8)],
+        )
 
     if len(frame) < head + 14:
         return None
     data_offset = (frame[head + 12] >> 4) * 4
-    return Packet(proto, src, dst, sport, dport, frame[head + data_offset :], frame[head + 13])
+    return Packet(
+        proto, src, dst, sport, dport, frame[head + data_offset :], frame[head + 13]
+    )
 
 
 class DoorbellListener(asyncio.DatagramProtocol):
@@ -241,7 +250,9 @@ class DoorbellListener(asyncio.DatagramProtocol):
             return
         self._last_ring = now
         self.rings += 1
-        _LOGGER.debug("Doorbell ring: %s opened a push connection to %s", packet.src, packet.dst)
+        _LOGGER.debug(
+            "Doorbell ring: %s opened a push connection to %s", packet.src, packet.dst
+        )
         try:
             self._on_ring()
         except Exception:  # noqa: BLE001 - never let a listener kill the socket

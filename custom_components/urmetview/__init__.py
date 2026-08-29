@@ -199,13 +199,19 @@ def _async_register_services(hass: HomeAssistant) -> None:
     }
     hass.services.async_register(DOMAIN, SERVICE_ANSWER, _answer, vol.Schema(base))
     hass.services.async_register(DOMAIN, SERVICE_HANG_UP, _hang_up, vol.Schema(base))
-    hass.services.async_register(DOMAIN, SERVICE_OPEN_LOCK, _open_lock, vol.Schema(base))
-    hass.services.async_register(DOMAIN, SERVICE_OPEN_GATE, _open_gate, vol.Schema(base))
+    hass.services.async_register(
+        DOMAIN, SERVICE_OPEN_LOCK, _open_lock, vol.Schema(base)
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_OPEN_GATE, _open_gate, vol.Schema(base)
+    )
     hass.services.async_register(
         DOMAIN,
         SERVICE_SELECT_STATION,
         _select_station,
-        vol.Schema({**base, vol.Required(ATTR_STATION): vol.All(int, vol.Range(min=1, max=2))}),
+        vol.Schema(
+            {**base, vol.Required(ATTR_STATION): vol.All(int, vol.Range(min=1, max=2))}
+        ),
     )
     hass.services.async_register(
         DOMAIN,

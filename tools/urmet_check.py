@@ -40,10 +40,20 @@ LAN_SEARCH_PORTS = (32108, 32100, 32106, 32107)
 DISCOVERY_PORT = 6688
 
 MSG_NAMES = {
-    0x00: "HELLO", 0x01: "HELLO_ACK", 0x12: "DEV_LGN_CRC", 0x13: "DEV_LGN_CRC_ACK",
-    0x20: "P2P_REQ", 0x21: "P2P_REQ_ACK", 0x30: "LAN_SEARCH", 0x31: "LAN_NOTIFY",
-    0x40: "CANDIDATE", 0x41: "checkCam", 0x42: "SESSION_ACK",
-    0xE0: "PING", 0xE1: "PING_ACK", 0xF9: "CALL_UNANSWERED",
+    0x00: "HELLO",
+    0x01: "HELLO_ACK",
+    0x12: "DEV_LGN_CRC",
+    0x13: "DEV_LGN_CRC_ACK",
+    0x20: "P2P_REQ",
+    0x21: "P2P_REQ_ACK",
+    0x30: "LAN_SEARCH",
+    0x31: "LAN_NOTIFY",
+    0x40: "CANDIDATE",
+    0x41: "checkCam",
+    0x42: "SESSION_ACK",
+    0xE0: "PING",
+    0xE1: "PING_ACK",
+    0xF9: "CALL_UNANSWERED",
 }
 
 
@@ -56,7 +66,9 @@ def split_uid(uid):
 
 def pack_short(uid):
     p, n, s = split_uid(uid)
-    return p.encode() + b"\x00\x00\x00" + n.to_bytes(3, "big") + s.encode() + b"\x00" * 3
+    return (
+        p.encode() + b"\x00\x00\x00" + n.to_bytes(3, "big") + s.encode() + b"\x00" * 3
+    )
 
 
 def pack_long_spec(uid, port):
@@ -67,8 +79,15 @@ def pack_long_spec(uid, port):
 def pack_long_proto(uid, port):
     """Port at offset 22 - what the working urmet_client.py actually sent."""
     p, n, s = split_uid(uid)
-    return (p.encode() + b"\x00\x00\x00" + n.to_bytes(3, "big") + s.encode()
-            + b"\x00" * 5 + port.to_bytes(2, "little") + b"\x00" * 12)
+    return (
+        p.encode()
+        + b"\x00\x00\x00"
+        + n.to_bytes(3, "big")
+        + s.encode()
+        + b"\x00" * 5
+        + port.to_bytes(2, "little")
+        + b"\x00" * 12
+    )
 
 
 def frame(msg_type, payload=b""):
@@ -132,6 +151,7 @@ def udp_socket(broadcast=False, bind_port=0):
 
 # --- 1. LAN search ----------------------------------------------------------
 
+
 def test_lan_search(uid, host, seconds=3.0, same_net=None):
     print("=" * 70)
     print("1. PPPP LAN SEARCH  (confirmed working - checking it still does)")
@@ -139,8 +159,8 @@ def test_lan_search(uid, host, seconds=3.0, same_net=None):
 
     targets = ["255.255.255.255"]
     if host:
-        targets.append(host.rsplit(".", 1)[0] + ".255")   # subnet broadcast
-        targets.append(host)                              # unicast, see note below
+        targets.append(host.rsplit(".", 1)[0] + ".255")  # subnet broadcast
+        targets.append(host)  # unicast, see note below
     probes = [("f1 30 00 00", frame(0x30)), ("bare 30 00", bytes([0x30, 0x00]))]
 
     sock = udp_socket(broadcast=True)
@@ -153,8 +173,10 @@ def test_lan_search(uid, host, seconds=3.0, same_net=None):
                     sock.sendto(probe, (target, port))
                 except OSError as err:
                     print(f"   send to {target}:{port} failed: {err}")
-    print(f"   sent {len(probes)}x{len(targets)}x{len(LAN_SEARCH_PORTS)} probes, "
-          f"waiting {seconds:.0f}s...")
+    print(
+        f"   sent {len(probes)}x{len(targets)}x{len(LAN_SEARCH_PORTS)} probes, "
+        f"waiting {seconds:.0f}s..."
+    )
     replies = collect(sock, seconds)
     sock.close()
 
@@ -180,6 +202,7 @@ def test_lan_search(uid, host, seconds=3.0, same_net=None):
 
 
 # --- 2. Verify the port with checkCam ---------------------------------------
+
 
 def test_probe(uid, host, port):
     """Ask a port for a session and see which port actually answers.
@@ -223,6 +246,7 @@ def test_probe(uid, host, port):
 
 # --- 3. Device announcement -------------------------------------------------
 
+
 def test_broadcast(seconds=20.0):
     print("=" * 70)
     print("3. DEVICE ANNOUNCEMENT on UDP 6688")
@@ -238,8 +262,10 @@ def test_broadcast(seconds=20.0):
     for (rhost, _), data in got:
         if len(data) < 330 or data[0:4] != b"\x22\x11\x01\x08":
             continue
+
         def field(off, ln):
-            return data[off:off + ln].split(b"\x00", 1)[0].decode("ascii", "replace")
+            return data[off : off + ln].split(b"\x00", 1)[0].decode("ascii", "replace")
+
         print(f"\n   Device at {rhost}")
         print(f"     UID       : {field(108, 24)}")
         print(f"     IP        : {field(84, 9)}")
@@ -254,11 +280,14 @@ def test_broadcast(seconds=20.0):
 
 # --- 4. Cloud lookup, both packings -----------------------------------------
 
+
 def resolve_cloud():
     servers = []
     for name in CLOUD_HOSTS:
         try:
-            for info in socket.getaddrinfo(name, CLOUD_PORT, socket.AF_INET, socket.SOCK_DGRAM):
+            for info in socket.getaddrinfo(
+                name, CLOUD_PORT, socket.AF_INET, socket.SOCK_DGRAM
+            ):
                 ip = info[4][0]
                 if ip not in servers:
                     servers.append(ip)
@@ -305,9 +334,11 @@ def cloud_variant(uid, servers, packer, label, seconds=5.0):
     ok = [s for s in statuses if s == 0]
     bad = [s for s in statuses if s != 0]
     print(f"   {label}:")
-    print(f"     port at offset {payload.index(local_port.to_bytes(2,'little'))}, "
-          f"{len(replies)} replies, status accepted={len(ok)} rejected={len(bad)}"
-          + (f" {[hex(b) for b in bad]}" if bad else ""))
+    print(
+        f"     port at offset {payload.index(local_port.to_bytes(2, 'little'))}, "
+        f"{len(replies)} replies, status accepted={len(ok)} rejected={len(bad)}"
+        + (f" {[hex(b) for b in bad]}" if bad else "")
+    )
     if candidates:
         for ip, port in candidates:
             print(f"     CANDIDATE {ip}:{port}")
@@ -323,7 +354,9 @@ def test_cloud(uid):
     servers = resolve_cloud()
     print()
     spec = cloud_variant(uid, servers, pack_long_spec, "A: spec layout (port @20)")
-    proto = cloud_variant(uid, servers, pack_long_proto, "B: prototype layout (port @22)")
+    proto = cloud_variant(
+        uid, servers, pack_long_proto, "B: prototype layout (port @22)"
+    )
     # Prefer the RFC1918 candidate: the servers return both a LAN and a public
     # address, and only the LAN one is usable from here.
     for group in (spec, proto):
@@ -342,6 +375,7 @@ def test_cloud(uid):
 
 
 # --- 5. Port scan -----------------------------------------------------------
+
 
 def test_sweep(uid, host, rate=3000):
     print("=" * 70)
@@ -365,7 +399,7 @@ def test_sweep(uid, host, rate=3000):
         sent += 1
         if sent % burst == 0:
             time.sleep(0.01)
-    print(f"   sent {sent} probes in {time.time()-start:.0f}s, listening 3s...")
+    print(f"   sent {sent} probes in {time.time() - start:.0f}s, listening 3s...")
     replies = collect(sock, 3.0)
     sock.close()
 
@@ -384,11 +418,14 @@ def test_sweep(uid, host, rate=3000):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--host", default="10.0.50.6", help="device IP (default 10.0.50.6)")
     ap.add_argument("--uid", default="URMABB-700171-SMCYN")
-    ap.add_argument("--listen", action="store_true", help="also wait for the 6688 announce")
+    ap.add_argument(
+        "--listen", action="store_true", help="also wait for the 6688 announce"
+    )
     ap.add_argument("--skip-sweep", action="store_true")
     ap.add_argument("--skip-cloud", action="store_true")
     args = ap.parse_args()
@@ -462,7 +499,9 @@ def main():
         print("  -> LAN search answers but the session probe did not. The port scan")
         print("     result below is the one to trust.")
     elif sweep:
-        print(f"  -> Use Host {args.host} with Session port {sweep} in the config flow,")
+        print(
+            f"  -> Use Host {args.host} with Session port {sweep} in the config flow,"
+        )
         print("     and you can switch the cloud option off.")
     elif cloud:
         print("  -> Cloud discovery is the only working method; leave that option on.")

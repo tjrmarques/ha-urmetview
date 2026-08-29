@@ -107,7 +107,9 @@ class UrmetConfigFlow(ConfigFlow, domain=DOMAIN):
                         data={
                             CONF_UID: uid,
                             CONF_AUTH_HASH: auth,
-                            CONF_USERNAME: user_input.get(CONF_USERNAME, DEFAULT_USERNAME),
+                            CONF_USERNAME: user_input.get(
+                                CONF_USERNAME, DEFAULT_USERNAME
+                            ),
                             CONF_HOST: host,
                             CONF_PORT: port,
                         },
@@ -220,7 +222,9 @@ class UrmetOptionsFlow(OptionsFlow):
                             CONF_STREAM_IDLE_TIMEOUT, DEFAULT_STREAM_IDLE_TIMEOUT
                         ),
                     ): NumberSelector(
-                        NumberSelectorConfig(min=5, max=600, mode=NumberSelectorMode.BOX)
+                        NumberSelectorConfig(
+                            min=5, max=600, mode=NumberSelectorMode.BOX
+                        )
                     ),
                     vol.Optional(
                         CONF_TALK_REPEAT,
@@ -244,7 +248,9 @@ class UrmetOptionsFlow(OptionsFlow):
                         CONF_DOORBELL_TZSP_PORT,
                         default=options.get(CONF_DOORBELL_TZSP_PORT, DEFAULT_TZSP_PORT),
                     ): NumberSelector(
-                        NumberSelectorConfig(min=1, max=65535, mode=NumberSelectorMode.BOX)
+                        NumberSelectorConfig(
+                            min=1, max=65535, mode=NumberSelectorMode.BOX
+                        )
                     ),
                 }
             ),

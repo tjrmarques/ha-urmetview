@@ -22,7 +22,9 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator: UrmetCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([UrmetStationSelect(coordinator), UrmetQualitySelect(coordinator)])
+    async_add_entities(
+        [UrmetStationSelect(coordinator), UrmetQualitySelect(coordinator)]
+    )
 
 
 class UrmetStationSelect(UrmetEntity, SelectEntity):

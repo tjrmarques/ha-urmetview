@@ -1,6 +1,6 @@
 """Session behaviour that is easy to get wrong and invisible when it is.
 
-    uv run tests/test_session.py
+uv run tests/test_session.py
 """
 
 from __future__ import annotations
@@ -11,7 +11,10 @@ import sys
 from collections import deque
 
 sys.path.insert(
-    0, str(pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "urmetview")
+    0,
+    str(
+        pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "urmetview"
+    ),
 )
 
 from urmet import UrmetError  # noqa: E402

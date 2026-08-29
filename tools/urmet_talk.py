@@ -81,7 +81,9 @@ async def _run(args: argparse.Namespace) -> int:
             print("Opening the talk channel...")
             await session.async_talk_start()
 
-            print(f"Sending {seconds:.1f}s of audio (repeat={args.repeat})... listen at the door.")
+            print(
+                f"Sending {seconds:.1f}s of audio (repeat={args.repeat})... listen at the door."
+            )
             sent = await audio.async_send_audio(session, pcmu, repeat=args.repeat)
             print(f"Sent {sent} frames.")
 
@@ -105,11 +107,19 @@ def main() -> int:
     )
     add_common_args(parser)
     parser.add_argument("--file", help="any ffmpeg-readable audio file or URL")
-    parser.add_argument("--tone", action="store_true", help="send a generated sine tone instead")
-    parser.add_argument("--duration", type=float, default=2.0, help="tone length in seconds")
-    parser.add_argument("--repeat", type=int, default=6, help="retransmits per frame (app uses ~12)")
+    parser.add_argument(
+        "--tone", action="store_true", help="send a generated sine tone instead"
+    )
+    parser.add_argument(
+        "--duration", type=float, default=2.0, help="tone length in seconds"
+    )
+    parser.add_argument(
+        "--repeat", type=int, default=6, help="retransmits per frame (app uses ~12)"
+    )
     parser.add_argument("--quality", default="sd", choices=["ld", "sd", "hd"])
-    parser.add_argument("--no-video", action="store_true", help="skip start_video first")
+    parser.add_argument(
+        "--no-video", action="store_true", help="skip start_video first"
+    )
     parser.add_argument("--ffmpeg", default="ffmpeg")
     args = parser.parse_args()
     setup_logging(args.verbose)

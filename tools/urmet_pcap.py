@@ -31,11 +31,22 @@ AUTH_RE = re.compile(rb'\{"username":"([ -~]{1,32})","auth":"([0-9A-Fa-f]{32})"\
 JSON_RE = re.compile(rb'\{"[ -~]{2,300}?\}')
 
 MSG_NAMES = {
-    0x00: "HELLO", 0x01: "HELLO_ACK", 0x12: "DEV_LGN_CRC (periodic)",
+    0x00: "HELLO",
+    0x01: "HELLO_ACK",
+    0x12: "DEV_LGN_CRC (periodic)",
     0x13: "DEV_LGN_CRC_ACK",
-    0x20: "P2P_REQ", 0x21: "P2P_REQ_ACK", 0x30: "LAN_SEARCH", 0x31: "LAN_NOTIFY",
-    0x41: "checkCam", 0x42: "session ack", 0xD0: "DATA", 0xD1: "ACK",
-    0xE0: "ping", 0xE1: "ping ack", 0xF0: "CLOSE", 0xF9: "DOORBELL RING",
+    0x20: "P2P_REQ",
+    0x21: "P2P_REQ_ACK",
+    0x30: "LAN_SEARCH",
+    0x31: "LAN_NOTIFY",
+    0x41: "checkCam",
+    0x42: "session ack",
+    0xD0: "DATA",
+    0xD1: "ACK",
+    0xE0: "ping",
+    0xE1: "ping ack",
+    0xF0: "CLOSE",
+    0xF9: "DOORBELL RING",
 }
 
 MSG_RING = 0xF9
@@ -96,7 +107,9 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("pcap")
-    parser.add_argument("--json", action="store_true", help="dump every JSON payload seen")
+    parser.add_argument(
+        "--json", action="store_true", help="dump every JSON payload seen"
+    )
     args = parser.parse_args()
 
     try:
@@ -145,9 +158,11 @@ def main() -> int:
 
     duration = packets[-1][0] - t0
     size = sum(len(f) for _, f in packets)
-    print(f"{args.pcap}: {len(packets)} packets, {size/1e6:.2f} MB, {duration:.1f}s")
+    print(f"{args.pcap}: {len(packets)} packets, {size / 1e6:.2f} MB, {duration:.1f}s")
     if duration > 0 and size / duration > 150_000:
-        print("  NOTE: high data rate - if this capture looks short, it hit a size limit")
+        print(
+            "  NOTE: high data rate - if this capture looks short, it hit a size limit"
+        )
 
     print("\nTop flows:")
     for (src, dst, dport), count in flows.most_common(10):
@@ -155,7 +170,7 @@ def main() -> int:
 
     print("\nUrmet message types:")
     for msg_type, count in sorted(types.items()):
-        print(f"  f1 {msg_type:02x} {MSG_NAMES.get(msg_type,'?'):<24} {count}")
+        print(f"  f1 {msg_type:02x} {MSG_NAMES.get(msg_type, '?'):<24} {count}")
 
     if rings:
         print(f"\n  *** {len(rings)} DOORBELL RING(S) ***")
@@ -174,7 +189,9 @@ def main() -> int:
             print("  it is static and replayable for gate/lock control.")
     else:
         print("No login exchange in this capture.")
-        print("Capture again while opening the app - the login is sent once, at connect.")
+        print(
+            "Capture again while opening the app - the login is sent once, at connect."
+        )
 
     if args.json:
         print("\nJSON payloads:")

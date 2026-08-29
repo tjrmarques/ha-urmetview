@@ -48,19 +48,27 @@ def _describe(asked: int, answered: int | None) -> str:
 
 async def _run(args: argparse.Namespace) -> int:
     if args.broadcast:
-        print(f"Listening for the LAN announcement on UDP 6688 (up to {args.timeout:.0f}s)...")
+        print(
+            f"Listening for the LAN announcement on UDP 6688 (up to {args.timeout:.0f}s)..."
+        )
         print("This is autonomous and infrequent - nothing we send triggers it.")
         device = await discovery.async_listen_broadcast(timeout=args.timeout)
         if device is None:
-            print("No announcement seen. The device may broadcast rarely; try a longer --timeout.")
+            print(
+                "No announcement seen. The device may broadcast rarely; try a longer --timeout."
+            )
             return 1
         print(f"\n  UID:          {device.uid}")
         print(f"  IP:           {device.host}")
         print(f"  MAC:          {device.mac}")
         print(f"  firmware:     {device.firmware}")
         print(f"  verify code:  {device.verification_code}")
-        print(f"  password:     {device.password}   <- broadcast in cleartext to the whole LAN")
-        print("\nNote the broadcast carries no session port; that still needs one of the methods below.")
+        print(
+            f"  password:     {device.password}   <- broadcast in cleartext to the whole LAN"
+        )
+        print(
+            "\nNote the broadcast carries no session port; that still needs one of the methods below."
+        )
         return 0
 
     results: list[tuple[str, str]] = []
@@ -68,24 +76,41 @@ async def _run(args: argparse.Namespace) -> int:
     # 1. cached / supplied port
     if args.host and args.port:
         answered = await discovery.async_probe_port(args.host, args.port, args.uid)
-        results.append(("supplied port", f"{args.host}:{args.port} -> {_describe(args.port, answered)}"))
+        results.append(
+            (
+                "supplied port",
+                f"{args.host}:{args.port} -> {_describe(args.port, answered)}",
+            )
+        )
 
     # 2. LAN search - the one we actually want to work
     print("Trying PPPP LAN search (broadcast to 32108)...")
     lan = await discovery.async_lan_search(timeout=args.timeout)
     if lan:
         for candidate in lan:
-            answered = await discovery.async_probe_port(candidate.host, candidate.port, args.uid)
-            results.append(("LAN SEARCH", f"{candidate} -> {_describe(candidate.port, answered)}"))
+            answered = await discovery.async_probe_port(
+                candidate.host, candidate.port, args.uid
+            )
+            results.append(
+                ("LAN SEARCH", f"{candidate} -> {_describe(candidate.port, answered)}")
+            )
     else:
-        results.append(("LAN search", "no reply - device likely does not answer LAN search"))
+        results.append(
+            ("LAN search", "no reply - device likely does not answer LAN search")
+        )
 
     # 3. cloud
     if not args.no_cloud:
         print("Trying cloud rendezvous...")
-        for candidate in await discovery.async_cloud_lookup(args.uid, timeout=args.timeout):
-            answered = await discovery.async_probe_port(candidate.host, candidate.port, args.uid)
-            results.append(("cloud", f"{candidate} -> {_describe(candidate.port, answered)}"))
+        for candidate in await discovery.async_cloud_lookup(
+            args.uid, timeout=args.timeout
+        ):
+            answered = await discovery.async_probe_port(
+                candidate.host, candidate.port, args.uid
+            )
+            results.append(
+                ("cloud", f"{candidate} -> {_describe(candidate.port, answered)}")
+            )
         if not any(r[0] == "cloud" for r in results):
             results.append(("cloud", "no candidates returned"))
 
@@ -94,9 +119,15 @@ async def _run(args: argparse.Namespace) -> int:
         if not args.host:
             print("--sweep needs --host", file=sys.stderr)
             return 2
-        print(f"Sweeping ports {args.sweep_start}-{args.sweep_end} at ~{args.rate}/s...")
+        print(
+            f"Sweeping ports {args.sweep_start}-{args.sweep_end} at ~{args.rate}/s..."
+        )
         found = await discovery.async_port_sweep(
-            args.host, args.uid, start=args.sweep_start, end=args.sweep_end, rate=args.rate
+            args.host,
+            args.uid,
+            start=args.sweep_start,
+            end=args.sweep_end,
+            rate=args.rate,
         )
         if found:
             for candidate in found:
@@ -112,14 +143,20 @@ async def _run(args: argparse.Namespace) -> int:
     print()
     if any("answered from port" in o for _, o in results):
         print("NOTE: the device answered from a different port than it was asked on.")
-        print("      The integration follows the answering port; earlier builds did not,")
-        print("      which is what caused 'Connection refused' right after discovery.\n")
+        print(
+            "      The integration follows the answering port; earlier builds did not,"
+        )
+        print(
+            "      which is what caused 'Connection refused' right after discovery.\n"
+        )
     if any(m == "LAN SEARCH" and "session OK" in o for m, o in results):
         print("LAN search works -> the integration can be fully cloud-free.")
     elif any(m == "PORT SWEEP" for m, o in results):
         print("Sweep works -> cloud-free, at the cost of a 30-90s scan per reconnect.")
     else:
-        print("Falling back to cloud lookup. Re-run with --sweep to test the local alternative.")
+        print(
+            "Falling back to cloud lookup. Re-run with --sweep to test the local alternative."
+        )
     return 0
 
 
@@ -131,12 +168,20 @@ def main() -> int:
     parser.add_argument("--port", type=int, help="a known/cached port to verify")
     parser.add_argument("--uid", default=DEFAULT_UID)
     parser.add_argument("--timeout", type=float, default=4.0)
-    parser.add_argument("--broadcast", action="store_true", help="listen for the UDP 6688 announcement instead")
+    parser.add_argument(
+        "--broadcast",
+        action="store_true",
+        help="listen for the UDP 6688 announcement instead",
+    )
     parser.add_argument("--no-cloud", action="store_true", help="skip the cloud lookup")
-    parser.add_argument("--sweep", action="store_true", help="brute-force the port range (needs --host)")
+    parser.add_argument(
+        "--sweep", action="store_true", help="brute-force the port range (needs --host)"
+    )
     parser.add_argument("--sweep-start", type=int, default=1024)
     parser.add_argument("--sweep-end", type=int, default=65535)
-    parser.add_argument("--rate", type=int, default=3000, help="sweep packets per second")
+    parser.add_argument(
+        "--rate", type=int, default=3000, help="sweep packets per second"
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0)
     args = parser.parse_args()
     setup_logging(args.verbose)

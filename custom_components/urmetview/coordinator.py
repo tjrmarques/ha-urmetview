@@ -115,13 +115,14 @@ class UrmetCoordinator:
         video and the door controls work fine without it.
         """
         try:
-            self._doorbell_transport, self._doorbell_listener = (
-                await doorbell_mirror.async_start_listener(
-                    self.doorbell_port,
-                    self.host,
-                    self._fire_doorbell,
-                    self._note_register_port,
-                )
+            (
+                self._doorbell_transport,
+                self._doorbell_listener,
+            ) = await doorbell_mirror.async_start_listener(
+                self.doorbell_port,
+                self.host,
+                self._fire_doorbell,
+                self._note_register_port,
             )
         except OSError as err:
             _LOGGER.error(
@@ -377,7 +378,10 @@ class UrmetCoordinator:
                     continue
                 if time.monotonic() - self._last_activity < self.stream_idle_timeout:
                     continue
-                _LOGGER.debug("No stream consumers for %ss, releasing video", self.stream_idle_timeout)
+                _LOGGER.debug(
+                    "No stream consumers for %ss, releasing video",
+                    self.stream_idle_timeout,
+                )
                 with contextlib.suppress(UrmetError):
                     await self._async_stop_video()
                 return

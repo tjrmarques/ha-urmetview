@@ -111,8 +111,8 @@ async def async_lan_search(
     """
     transport, collector = await _open(broadcast=True)
     probes = (
-        p.build_simple(0x30),   # f1 30 00 00, the common encoding
-        bytes([0x30, 0x00]),    # bare, as some implementations send it
+        p.build_simple(0x30),  # f1 30 00 00, the common encoding
+        bytes([0x30, 0x00]),  # bare, as some implementations send it
     )
     try:
         for probe in probes:
@@ -130,7 +130,9 @@ async def async_lan_search(
         _LOGGER.debug("LAN search: %s:%s sent %s", host, port, data[:32].hex(" "))
         if len(data) < 2 or data[0] != p.MAGIC:
             continue
-        found.setdefault((host, port), Candidate(host, port, f"lan-search type=0x{data[1]:02x}"))
+        found.setdefault(
+            (host, port), Candidate(host, port, f"lan-search type=0x{data[1]:02x}")
+        )
     return list(found.values())
 
 
@@ -167,7 +169,9 @@ async def async_probe_port(
                     _LOGGER.debug(
                         "Probed %s:%s but the session ack came from port %s - "
                         "using that instead",
-                        host, port, src_port,
+                        host,
+                        port,
+                        src_port,
                     )
                 return src_port
             await asyncio.sleep(0.05)
@@ -189,13 +193,17 @@ async def async_cloud_lookup(uid: str, timeout: float = 4.0) -> list[Candidate]:
     servers: list[str] = []
     for hostname in p.CLOUD_HOSTS:
         try:
-            infos = await loop.getaddrinfo(hostname, p.CLOUD_PORT, proto=socket.IPPROTO_UDP)
+            infos = await loop.getaddrinfo(
+                hostname, p.CLOUD_PORT, proto=socket.IPPROTO_UDP
+            )
         except OSError as err:
             _LOGGER.debug("DNS lookup failed for %s: %s", hostname, err)
             continue
         servers.extend(info[4][0] for info in infos)
     if not servers:
-        _LOGGER.debug("Falling back to hardcoded cloud IPs; Urmet may have rotated them")
+        _LOGGER.debug(
+            "Falling back to hardcoded cloud IPs; Urmet may have rotated them"
+        )
         servers = list(p.CLOUD_FALLBACK_IPS)
 
     transport, collector = await _open()
@@ -229,7 +237,8 @@ async def async_cloud_lookup(uid: str, timeout: float = 4.0) -> list[Candidate]:
             else:
                 _LOGGER.warning(
                     "Cloud rejected the lookup (status 0x%02x) - most likely the UID "
-                    "packing", response.status,
+                    "packing",
+                    response.status,
                 )
             continue
         if response.is_candidate and response.host and response.port:
@@ -299,7 +308,9 @@ async def async_port_sweep(
         _LOGGER.debug(
             "%s ports on %s answered: %s. Only one will accept a login, so all "
             "are tried in turn.",
-            len(found), host, ", ".join(str(port) for port in sorted(found)),
+            len(found),
+            host,
+            ", ".join(str(port) for port in sorted(found)),
         )
     return [found[port] for port in sorted(found)]
 
@@ -368,7 +379,9 @@ async def async_find_device(
 
     if host and cached_port and (host, cached_port) not in skip:
         answered = await async_probe_port(host, cached_port, uid)
-        if answered is not None and (found := _accept(Candidate(host, answered, "cached"))):
+        if answered is not None and (
+            found := _accept(Candidate(host, answered, "cached"))
+        ):
             _LOGGER.debug("Found via supplied/cached address %s:%s", host, answered)
             return found
         _LOGGER.debug(

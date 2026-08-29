@@ -21,7 +21,12 @@ import socket
 import struct
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "urmetview"))
+sys.path.insert(
+    0,
+    str(
+        pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "urmetview"
+    ),
+)
 
 from doorbell import (  # noqa: E402
     PUSH_PORT,
@@ -38,13 +43,15 @@ PUSH_SERVER = "54.84.37.235"
 
 # The f1 f9 message, captured 22s AFTER the button press.
 UNANSWERED_PAYLOAD = bytes.fromhex(
-    "f1f90054" "15fd19a0d1e84208793c4d3aef6f126bb33d84752ff672b2c582cbd8eab85a28b72731 11"
-    .replace(" ", "")
+    "f1f90054"
+    "15fd19a0d1e84208793c4d3aef6f126bb33d84752ff672b2c582cbd8eab85a28b72731 11".replace(
+        " ", ""
+    )
 ).ljust(88, b"\x00")
 
 # The periodic registration message, from the same capture.
 REGISTER_PAYLOAD = bytes.fromhex(
-    "f112002c" "4824192bc6cef2547c4863f7c7ffab2ba00ca09e6e462220d2d2dae88e94cce6bade94d2"
+    "f112002c4824192bc6cef2547c4863f7c7ffab2ba00ca09e6e462220d2d2dae88e94cce6bade94d2"
 ).ljust(48, b"\x00")
 
 
@@ -203,7 +210,12 @@ def test_traffic_from_other_hosts_is_ignored():
 
 def test_garbage_does_not_raise():
     harness = _Harness()
-    for junk in (b"", b"\x01", b"\x01\x00\x00\x01\x01", b"\x01\x00\x00\x01\x01" + b"\xff" * 40):
+    for junk in (
+        b"",
+        b"\x01",
+        b"\x01\x00\x00\x01\x01",
+        b"\x01\x00\x00\x01\x01" + b"\xff" * 40,
+    ):
         harness.listener.datagram_received(junk, ("10.0.0.1", 37008))
     assert harness.rings == 0
 

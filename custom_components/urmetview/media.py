@@ -147,32 +147,46 @@ class MediaPipeline:
         args = [
             self._ffmpeg_binary,
             "-hide_banner",
-            "-loglevel", "warning",
-            "-fflags", "nobuffer",
-            "-flags", "low_delay",
+            "-loglevel",
+            "warning",
+            "-fflags",
+            "nobuffer",
+            "-flags",
+            "low_delay",
             # The device's H.264 has no container timing, so let ffmpeg stamp
             # arrival time rather than trusting absent timestamps.
-            "-use_wallclock_as_timestamps", "1",
-            "-f", "h264",
-            "-i", f"tcp://127.0.0.1:{self.video_port}",
+            "-use_wallclock_as_timestamps",
+            "1",
+            "-f",
+            "h264",
+            "-i",
+            f"tcp://127.0.0.1:{self.video_port}",
         ]
         if self._enable_audio:
             args += [
-                "-f", "mulaw",
-                "-ar", str(AUDIO_SAMPLE_RATE),
-                "-ac", "1",
-                "-use_wallclock_as_timestamps", "1",
-                "-i", f"tcp://127.0.0.1:{self.audio_port}",
+                "-f",
+                "mulaw",
+                "-ar",
+                str(AUDIO_SAMPLE_RATE),
+                "-ac",
+                "1",
+                "-use_wallclock_as_timestamps",
+                "1",
+                "-i",
+                f"tcp://127.0.0.1:{self.audio_port}",
             ]
         args += ["-c:v", "copy"]
         if self._enable_audio:
             args += ["-c:a", "aac", "-b:a", "64k", "-ar", "16000"]
         args += [
-            "-f", "mpegts",
+            "-f",
+            "mpegts",
             # Repeat the headers so a client joining late can start decoding
             # without waiting for the next natural PAT/PMT.
-            "-mpegts_flags", "+resend_headers",
-            "-pat_period", "0.5",
+            "-mpegts_flags",
+            "+resend_headers",
+            "-pat_period",
+            "0.5",
             "pipe:1",
         ]
 

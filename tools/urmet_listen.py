@@ -29,7 +29,13 @@ import asyncio
 import contextlib
 import time
 
-from _common import UrmetSession, add_common_args, async_resolve, protocol, setup_logging
+from _common import (
+    UrmetSession,
+    add_common_args,
+    async_resolve,
+    protocol,
+    setup_logging,
+)
 
 
 class Listener:
@@ -128,11 +134,15 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     add_common_args(parser)
-    parser.add_argument("--with-video", action="store_true", help="also start the video stream")
+    parser.add_argument(
+        "--with-video", action="store_true", help="also start the video stream"
+    )
     parser.add_argument("--quality", default="sd", choices=["ld", "sd", "hd"])
     parser.add_argument("--status-interval", type=float, default=10.0)
     parser.add_argument(
-        "--show-all", action="store_true", help="also log the device's routine announcements"
+        "--show-all",
+        action="store_true",
+        help="also log the device's routine announcements",
     )
     args = parser.parse_args()
     setup_logging(args.verbose)

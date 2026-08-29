@@ -77,9 +77,12 @@ class UrmetCamera(UrmetEntity, Camera):
         args = [
             self.coordinator.pipeline.ffmpeg_binary,
             "-hide_banner",
-            "-loglevel", "error",
-            "-i", url,
-            "-frames:v", "1",
+            "-loglevel",
+            "error",
+            "-i",
+            url,
+            "-frames:v",
+            "1",
         ]
         if width and height:
             args += ["-vf", f"scale={width}:{height}"]

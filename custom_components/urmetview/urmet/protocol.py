@@ -214,7 +214,9 @@ def parse_packet(data: bytes) -> DataPacket | None:
         return None
     if data[4] != MSG_ACK:
         return None
-    return DataPacket(channel=data[5], seq=int.from_bytes(data[6:8], "big"), payload=data[8:])
+    return DataPacket(
+        channel=data[5], seq=int.from_bytes(data[6:8], "big"), payload=data[8:]
+    )
 
 
 # --- Command blocks (section 3) ---------------------------------------------
@@ -433,7 +435,12 @@ class DiscoveredDevice:
 
 
 def _ascii_field(data: bytes, start: int, length: int) -> str:
-    return data[start : start + length].split(b"\x00", 1)[0].decode("ascii", "replace").strip()
+    return (
+        data[start : start + length]
+        .split(b"\x00", 1)[0]
+        .decode("ascii", "replace")
+        .strip()
+    )
 
 
 def parse_discovery_broadcast(data: bytes) -> DiscoveredDevice | None:

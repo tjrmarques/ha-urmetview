@@ -17,7 +17,10 @@ import socket
 import sys
 
 sys.path.insert(
-    0, str(pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "urmetview")
+    0,
+    str(
+        pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "urmetview"
+    ),
 )
 
 from urmet import discovery  # noqa: E402
@@ -87,7 +90,9 @@ def test_probe_returns_the_same_port_when_the_device_is_well_behaved() -> None:
     async def run() -> None:
         listen_port, _, transports = await _spawn(reply_from_other_port=False)
         try:
-            assert await discovery.async_probe_port(HOST, listen_port, UID) == listen_port
+            assert (
+                await discovery.async_probe_port(HOST, listen_port, UID) == listen_port
+            )
         finally:
             for transport in transports:
                 transport.close()
@@ -103,7 +108,9 @@ def test_probe_returns_none_when_nothing_answers() -> None:
         sock.bind((HOST, 0))
         dead_port = sock.getsockname()[1]
         sock.close()
-        assert await discovery.async_probe_port(HOST, dead_port, UID, timeout=0.4) is None
+        assert (
+            await discovery.async_probe_port(HOST, dead_port, UID, timeout=0.4) is None
+        )
 
     asyncio.run(run())
 

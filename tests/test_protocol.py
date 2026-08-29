@@ -13,7 +13,12 @@ from __future__ import annotations
 import pathlib
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "urmetview"))
+sys.path.insert(
+    0,
+    str(
+        pathlib.Path(__file__).resolve().parents[1] / "custom_components" / "urmetview"
+    ),
+)
 
 from urmet import protocol as p  # noqa: E402
 from urmet.session import _ChannelReassembler  # noqa: E402
@@ -24,7 +29,7 @@ UID = "URMABB-700171-SMCYN"
 def test_short_uid_packing_is_byte_exact():
     """The numeric segment is a 3-byte big-endian int, not ASCII digits."""
     # URMABB | 000000 | 0aaf0b (=700171) | SMCYN | 000000
-    expected = bytes.fromhex("55524d414242" "000000" "0aaf0b" "534d43594e" "000000")
+    expected = bytes.fromhex("55524d4142420000000aaf0b534d43594e000000")
     packed = p.pack_uid_short(UID)
     assert len(packed) == 20
     assert packed == expected
@@ -76,8 +81,7 @@ def test_command_block_length_includes_the_nul():
 def test_login_packet_matches_the_captured_bytes():
     """Reproduce the verified login packet from docs/protocol.md section 4b."""
     expected = bytes.fromhex(
-        "f1d00066d1000000"
-        "a3010 0ffc800010000000000030000007b7d00".replace(" ", "")
+        "f1d00066d1000000a3010 0ffc800010000000000030000007b7d00".replace(" ", "")
         + "a3010 0ff0b00020000000000 3f000000".replace(" ", "")
         + b'{"username":"admin","auth":"A8935C8DA4ABAD9782B7045054680D67"}\x00'.hex()
     )
@@ -93,8 +97,12 @@ def test_login_packet_matches_the_captured_bytes():
 
 def test_ack_framing_matches_captured_examples():
     """Section 1c quotes these four acks verbatim."""
-    assert p.build_ack(p.CHANNEL_MEDIA, [1]) == bytes.fromhex("f1d10006d101000100 01".replace(" ", ""))
-    assert p.build_ack(p.CHANNEL_MEDIA, [2, 2]) == bytes.fromhex("f1d10008d1010002000200 02".replace(" ", ""))
+    assert p.build_ack(p.CHANNEL_MEDIA, [1]) == bytes.fromhex(
+        "f1d10006d101000100 01".replace(" ", "")
+    )
+    assert p.build_ack(p.CHANNEL_MEDIA, [2, 2]) == bytes.fromhex(
+        "f1d10008d1010002000200 02".replace(" ", "")
+    )
     assert p.build_ack(p.CHANNEL_MEDIA, [0x0B] * 4) == bytes.fromhex(
         "f1d1000cd1010004000b000b000b000b"
     )
@@ -145,7 +153,9 @@ def test_command_blocks_split_and_keep_partial_tail():
 
 
 def test_media_frame_header_offset():
-    payload = p.MARKER_MEDIA_IN + bytes([p.STREAM_VIDEO_KEYFRAME]) + b"\x00" * 27 + b"NALDATA"
+    payload = (
+        p.MARKER_MEDIA_IN + bytes([p.STREAM_VIDEO_KEYFRAME]) + b"\x00" * 27 + b"NALDATA"
+    )
     media = p.parse_media_start(payload)
     assert media is not None
     assert media.is_video and media.is_keyframe

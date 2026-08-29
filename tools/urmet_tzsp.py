@@ -115,7 +115,10 @@ def parse_udp(frame: bytes):
     if ethertype != 0x0800 or len(frame) < offset + 20:
         return None
     proto = frame[offset + 9]
-    if (frame[offset] >> 4) != 4 or proto not in (socket.IPPROTO_UDP, socket.IPPROTO_TCP):
+    if (frame[offset] >> 4) != 4 or proto not in (
+        socket.IPPROTO_UDP,
+        socket.IPPROTO_TCP,
+    ):
         return None
     ihl = (frame[offset] & 0x0F) * 4
     src = ".".join(str(b) for b in frame[offset + 12 : offset + 16])
@@ -157,10 +160,12 @@ class Sniffer(asyncio.DatagramProtocol):
             if dport == PUSH_PORT and flags & 0x02 and not flags & 0x10:
                 self.rings += 1
                 print(
-                    "\n" + "=" * 62
+                    "\n"
+                    + "=" * 62
                     + f"\n  DOORBELL RING #{self.rings}  ({time.strftime('%H:%M:%S')})"
                     + f"\n  {src} -> {dst}:{dport}\n"
-                    + "=" * 62 + "\n",
+                    + "=" * 62
+                    + "\n",
                     flush=True,
                 )
             return
@@ -206,10 +211,12 @@ async def _run(args: argparse.Namespace) -> int:
 
     print("\nMessage type totals:")
     for msg_type, count in sorted(sniffer.counts.items()):
-        print(f"  f1 {msg_type:02x} {MSG_NAMES.get(msg_type,'?'):<28} {count}")
+        print(f"  f1 {msg_type:02x} {MSG_NAMES.get(msg_type, '?'):<28} {count}")
     print(f"\nRings detected: {sniffer.rings}")
     if sniffer.last_register_port:
-        print(f"Last registration source port (= likely session port): {sniffer.last_register_port}")
+        print(
+            f"Last registration source port (= likely session port): {sniffer.last_register_port}"
+        )
     return 0
 
 
@@ -219,7 +226,9 @@ def main() -> int:
     )
     parser.add_argument("--port", type=int, default=TZSP_PORT)
     parser.add_argument("--device-ip", help="only show traffic involving this IP")
-    parser.add_argument("--show-all", action="store_true", help="include pings and data packets")
+    parser.add_argument(
+        "--show-all", action="store_true", help="include pings and data packets"
+    )
     args = parser.parse_args()
     try:
         return asyncio.run(_run(args))

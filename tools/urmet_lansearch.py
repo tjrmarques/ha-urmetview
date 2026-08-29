@@ -32,9 +32,14 @@ import time
 LAN_SEARCH_PORTS = (32108, 32100, 32106, 32107)
 MAGIC = 0xF1
 TYPES = {
-    0x30: "LAN_SEARCH", 0x31: "LAN_NOTIFY", 0x41: "PUNCH/checkCam",
-    0x42: "SESSION_ACK", 0xE0: "PING", 0xE1: "PING_ACK",
-    0x12: "DEV_LOGIN", 0x13: "DEV_LOGIN_ACK",
+    0x30: "LAN_SEARCH",
+    0x31: "LAN_NOTIFY",
+    0x41: "PUNCH/checkCam",
+    0x42: "SESSION_ACK",
+    0xE0: "PING",
+    0xE1: "PING_ACK",
+    0x12: "DEV_LOGIN",
+    0x13: "DEV_LOGIN_ACK",
 }
 
 
@@ -142,7 +147,9 @@ def main() -> int:
         default="",
         help="extra ports to try LAN search on, e.g. the ones the scan found",
     )
-    ap.add_argument("--rounds", type=int, default=8, help="repeat, to catch a flaky responder")
+    ap.add_argument(
+        "--rounds", type=int, default=8, help="repeat, to catch a flaky responder"
+    )
     args = ap.parse_args()
 
     mine = local_ip_towards(args.host)
@@ -178,9 +185,13 @@ def main() -> int:
         print("   If the device answers 0x30 here but not on 32108, LAN search")
         print("   lives on the session sockets and 32108 is a red herring.\n")
         for port in extra:
-            print(f"   {args.host}:{port:<6} {probe_unconnected(args.host, port, probe)}")
-            print(f"   {args.host}:{port:<6} checkCam -> "
-                  f"{probe_unconnected(args.host, port, frame(0x41))}")
+            print(
+                f"   {args.host}:{port:<6} {probe_unconnected(args.host, port, probe)}"
+            )
+            print(
+                f"   {args.host}:{port:<6} checkCam -> "
+                f"{probe_unconnected(args.host, port, frame(0x41))}"
+            )
 
     print()
     print("=" * 70)
@@ -204,8 +215,10 @@ def main() -> int:
     for round_no in range(1, args.rounds + 1):
         uni = probe_unconnected(args.host, 32108, probe, wait=1.0)
         bcast = probe_broadcast("255.255.255.255", 32108, probe, wait=1.0)
-        print(f"   round {round_no}: unicast {uni:<52} broadcast "
-              f"{len(bcast)} repl{'y' if len(bcast) == 1 else 'ies'}")
+        print(
+            f"   round {round_no}: unicast {uni:<52} broadcast "
+            f"{len(bcast)} repl{'y' if len(bcast) == 1 else 'ies'}"
+        )
         if round_no < args.rounds:
             time.sleep(5.0)
 
