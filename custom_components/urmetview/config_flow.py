@@ -24,6 +24,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_ALLOW_CLOUD,
     CONF_AUTH_HASH,
     CONF_DOORBELL_TZSP,
     CONF_DOORBELL_TZSP_PORT,
@@ -224,6 +225,10 @@ class UrmetOptionsFlow(OptionsFlow):
                     vol.Optional(
                         CONF_DOORBELL_TZSP,
                         default=options.get(CONF_DOORBELL_TZSP, False),
+                    ): bool,
+                    vol.Optional(
+                        CONF_ALLOW_CLOUD,
+                        default=options.get(CONF_ALLOW_CLOUD, True),
                     ): bool,
                     vol.Optional(
                         CONF_RING_PREWARM,

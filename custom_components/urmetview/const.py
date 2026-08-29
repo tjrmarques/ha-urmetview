@@ -19,7 +19,6 @@ CONF_PORT: Final = "port"
 CONF_USERNAME: Final = "username"
 
 # Options
-CONF_PORT_STRATEGY: Final = "port_strategy"
 CONF_QUALITY: Final = "quality"
 CONF_STREAM_IDLE_TIMEOUT: Final = "stream_idle_timeout"
 CONF_TALK_REPEAT: Final = "talk_repeat"
@@ -27,21 +26,8 @@ CONF_STATION_COUNT: Final = "station_count"
 CONF_DOORBELL_TZSP: Final = "doorbell_tzsp"
 CONF_DOORBELL_TZSP_PORT: Final = "doorbell_tzsp_port"
 CONF_RING_PREWARM: Final = "ring_prewarm"
+CONF_ALLOW_CLOUD: Final = "allow_cloud"
 
-PORT_STRATEGY_AUTO: Final = "auto"
-PORT_STRATEGY_CLOUD: Final = "cloud"
-PORT_STRATEGY_LAN: Final = "lan_search"
-PORT_STRATEGY_STATIC: Final = "static"
-PORT_STRATEGY_SWEEP: Final = "sweep"
-PORT_STRATEGIES: Final = [
-    PORT_STRATEGY_AUTO,
-    PORT_STRATEGY_CLOUD,
-    PORT_STRATEGY_LAN,
-    PORT_STRATEGY_STATIC,
-    PORT_STRATEGY_SWEEP,
-]
-
-DEFAULT_PORT_STRATEGY: Final = PORT_STRATEGY_AUTO
 DEFAULT_STATION_COUNT: Final = 2
 
 #: How long the video channel stays open after the last viewer disconnects.

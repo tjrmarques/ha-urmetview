@@ -61,6 +61,7 @@ class UrmetCoordinator:
         doorbell_mirror: bool = False,
         doorbell_port: int = DEFAULT_TZSP_PORT,
         ring_prewarm: bool = False,
+        allow_cloud: bool = True,
     ) -> None:
         self.hass = hass
         self.entry_id = entry_id
@@ -75,6 +76,7 @@ class UrmetCoordinator:
         self.doorbell_mirror = doorbell_mirror
         self.doorbell_port = doorbell_port
         self.ring_prewarm = ring_prewarm
+        self.allow_cloud = allow_cloud
 
         self.session: UrmetSession | None = None
         self.pipeline = MediaPipeline(ffmpeg_binary)
@@ -192,7 +194,7 @@ class UrmetCoordinator:
             self.uid,
             host=self.host,
             cached_port=self.port,
-            allow_cloud=True,
+            allow_cloud=self.allow_cloud,
             # Once the host is known the sweep is a fully local fallback, which
             # matters on a reconnect after the device has rotated its port.
             allow_sweep=bool(self.host),

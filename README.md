@@ -173,6 +173,20 @@ python3 tools/urmet_probe.py --host 10.0.50.6 --sweep # find the current port
 That matters: if PPPP LAN search answers, the integration can drop the cloud
 round-trip entirely.
 
+The integration itself tries them in this order, cheapest first:
+
+| Step | When | Cost |
+|---|---|---|
+| The `host:port` you configured | only if you set **both** | ~1.5 s |
+| LAN search (broadcast to :32108) | always | 2 s |
+| Cloud lookup via `*.caycctv.com` | unless disabled in options | ~4 s |
+| Local port scan | only if a Host is set | ~20 s, 64k packets |
+
+The scan is last because it is by far the most expensive. Turning off **Use
+Urmet's servers to find the device** in the options skips the cloud step, so
+discovery never leaves your network — at the cost of falling through to the
+scan whenever the port has changed.
+
 ### 3. Watch the video
 
 ```bash

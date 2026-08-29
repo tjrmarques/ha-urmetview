@@ -16,6 +16,7 @@ from .const import (
     ATTR_MEDIA,
     ATTR_QUALITY,
     ATTR_STATION,
+    CONF_ALLOW_CLOUD,
     CONF_AUTH_HASH,
     CONF_DOORBELL_TZSP,
     CONF_DOORBELL_TZSP_PORT,
@@ -75,6 +76,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         doorbell_mirror=entry.options.get(CONF_DOORBELL_TZSP, False),
         doorbell_port=entry.options.get(CONF_DOORBELL_TZSP_PORT, DEFAULT_TZSP_PORT),
         ring_prewarm=entry.options.get(CONF_RING_PREWARM, False),
+        allow_cloud=entry.options.get(CONF_ALLOW_CLOUD, True),
     )
 
     try:
