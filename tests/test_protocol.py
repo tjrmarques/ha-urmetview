@@ -235,11 +235,12 @@ if __name__ == "__main__":
 
 
 def test_both_cloud_uid_packings_are_36_bytes_and_differ():
-    """The spec and the working prototype disagree on where the port sits.
+    """Two layouts exist; the live servers accept both.
 
-    Spec section 2b puts it at offset 20; urmet_client.py put it at 22 and is
-    the version observed working. A wrong packing is answered with a status
-    byte rather than a visible error, so discovery sends both.
+    Spec section 2b puts the port at offset 20, urmet_client.py put it at 22.
+    Tested against the real servers: both are accepted, so the integration
+    sends only the documented offset-20 form. This keeps the other honest in
+    case a future firmware becomes stricter.
     """
     spec = p.pack_uid_long(UID, 0x1234)
     alt = p.pack_uid_long_alt(UID, 0x1234)

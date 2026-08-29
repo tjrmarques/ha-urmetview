@@ -18,7 +18,7 @@
       "invalid_auth": "The device rejected this auth hash.",
       "invalid_auth_format": "The auth hash must be 32 hexadecimal characters.",
       "invalid_uid": "The UID should look like URMABB-700171-SMCYN.",
-      "not_found": "Could not find the intercom. If Home Assistant is on a different subnet or VLAN, discovery by broadcast cannot reach it - enter the device's IP in Host and leave Session port blank to scan for the port (takes about 20 seconds)."
+      "not_found": "Could not find the intercom. If Home Assistant is on a different subnet or VLAN, discovery by broadcast cannot reach it - enter the device's IP in Host and leave Session port blank to scan for the port (takes up to a minute or so)."
     },
     "abort": {
       "already_configured": "This intercom is already set up."
@@ -43,7 +43,7 @@
           "doorbell_tzsp": "The ring is a cloud push, so it never reaches Home Assistant directly. If your router can mirror the device's traffic here (MikroTik: stream to this host as TZSP), rings become a local event. Off by default.",
           "doorbell_tzsp_port": "UDP port the mirror streams to. MikroTik's default is 37008.",
           "ring_prewarm": "The device does not send video on a ring - it must be pulled, which costs a few seconds. Enabling this starts the stream on each ring so a picture is ready sooner, but it takes the device's single video channel just as the phone app wants it to answer the call. Leave off if you still use the app.",
-          "allow_cloud": "Discovery tries a LAN broadcast, then Urmet's rendezvous servers, then - if you set a Host - a local scan for the port. Turn this off to skip the cloud step, which sends the device UID to Urmet; discovery stays entirely local, but the port scan takes about 20 seconds."
+          "allow_cloud": "Discovery tries a LAN broadcast, then Urmet's rendezvous servers, then - if you set a Host - a local scan for the port. Turn this off to skip the cloud step, which sends the device UID to Urmet; discovery stays entirely local, but the port scan takes up to a minute or so."
         }
       }
     }

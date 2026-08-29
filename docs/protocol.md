@@ -818,9 +818,38 @@ Worth documenting plainly, since this affects real physical access control
 
 ## 9. Open question: does the device need live cloud access at all?
 
-**Confirmed:** cloud rendezvous (Section 4a) is the only mechanism found
-for *discovering* the current session port — the port is not fixed, isn't
-announced on the LAN broadcast, and changes each session.
+> **RESOLVED — the premise below was wrong. LAN search works.**
+>
+> Broadcasting PPPP's `MSG_LAN_SEARCH` (`f1 30 00 00`) to UDP **32108** makes
+> the device reply **from its current session port** — exactly the value the
+> cloud lookup exists to provide. Verified from a machine on the device's own
+> subnet (10.0.50.57 → 10.0.50.6):
+>
+> ```
+> REPLY from 10.0.50.6:23117
+>   f1 41 00 14 55 52 4d 41 42 42 00 00 00 0a af 0b 53 4d 43 59 4e 00 00 00
+> ```
+>
+> Two details matter for implementers:
+>
+> * The reply is a **`0x41` carrying the short-form packed UID**, not the
+>   `0x31` LAN_NOTIFY that stock PPPP documents. Accept any `f1` reply rather
+>   than matching on message type.
+> * An independent full port scan confirmed 23117 answers checkCam with a
+>   `0x42` session ack, so **the reply's source port is authoritative**.
+>
+> This went unnoticed because every earlier capture was taken from a phone or
+> laptop on a **different subnet** (10.0.20.x) from the intercom, where a
+> broadcast cannot reach it — the captures were silent, not negative.
+> **Port discovery needs no cloud access at all** when the client shares a
+> subnet with the device.
+>
+> Also settled: the servers accept **both** UID packings described in Section
+> 2b (local port at offset 20, and at offset 22). Either works.
+
+**Superseded (see above):** cloud rendezvous (Section 4a) was believed to be
+the only mechanism for *discovering* the current session port — the port is
+not fixed, isn't announced on the LAN broadcast, and changes each session.
 
 **Confirmed: the LAN discovery broadcast (Section 2c) does not carry the
 session port either, and isn't even a stable port itself.** Checked

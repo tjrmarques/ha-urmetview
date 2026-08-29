@@ -180,7 +180,7 @@ The integration itself tries them in this order, cheapest first:
 | The `host:port` you configured | only if you set **both** | ~1.5 s |
 | LAN search (broadcast to :32108) — **unverified** | always | 2 s |
 | Cloud lookup via `*.caycctv.com` | unless disabled in options | ~4 s |
-| Local port scan | only if a Host is set | ~20 s, 64k packets |
+| Local port scan | only if a Host is set | 30-90 s, 64k packets |
 
 LAN search is speculative: the transport is confirmed PPPP/CS2, and PPPP
 devices answer a broadcast on 32108 *from their session port*, which would make

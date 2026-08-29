@@ -135,10 +135,9 @@ def pack_uid_short(uid: str) -> bytes:
 def pack_uid_long(uid: str, local_port: int) -> bytes:
     """36-byte cloud lookup form, with the port at offset 20 (spec section 2b).
 
-    The spec and the working prototype disagree about where the port goes, and
-    the spec also records that a bad packing is answered with status 0xfd - so
-    getting this wrong looks exactly like "the cloud lookup silently fails".
-    Callers should try :func:`pack_uid_long_alt` as well rather than choose.
+    Tested against the live servers: they accept this form and the offset-22
+    form in :func:`pack_uid_long_alt` equally, so either works. This one is
+    used because it is what the spec documents.
     """
     return pack_uid_short(uid) + local_port.to_bytes(2, "little") + b"\x00" * 14
 
@@ -146,8 +145,9 @@ def pack_uid_long(uid: str, local_port: int) -> bytes:
 def pack_uid_long_alt(uid: str, local_port: int) -> bytes:
     """Same, but with the port at offset 22 - the layout the prototype used.
 
-    Byte-for-byte what ``urmet_client.py`` sent, which is the version actually
-    observed working against the real servers. Two zero bytes of the short
+    Byte-for-byte what ``urmet_client.py`` sent. Kept for reference: the
+    servers accept this and :func:`pack_uid_long` equally, so the integration
+    sends only the documented offset-20 form. Two zero bytes of the short
     form's trailing padding are pushed out to make room.
     """
     prefix, number, suffix = split_uid(uid)

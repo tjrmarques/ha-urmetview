@@ -278,6 +278,10 @@ def test_cloud(uid):
     print()
     spec = cloud_variant(uid, servers, pack_long_spec, "A: spec layout (port @20)")
     proto = cloud_variant(uid, servers, pack_long_proto, "B: prototype layout (port @22)")
+    # Prefer the RFC1918 candidate: the servers return both a LAN and a public
+    # address, and only the LAN one is usable from here.
+    for group in (spec, proto):
+        group.sort(key=lambda c: not c[0].startswith(("10.", "192.168.", "172.")))
     print()
     if spec and not proto:
         print("   RESULT: the SPEC packing is correct. Drop the prototype variant.")
@@ -302,7 +306,8 @@ def test_sweep(uid, host, rate=3000):
         return None
     payload = frame(0x41, pack_short(uid))
     sock = udp_socket()
-    print(f"   sending checkCam to {host}:1024-65535 at ~{rate}/s (~20s)...")
+    print(f"   sending checkCam to {host}:1024-65535 (takes 30-90s; the OS sleep")
+    print("   granularity dominates, so it is slower than the raw packet rate)...")
     burst = max(1, rate // 100)
     sent = 0
     start = time.time()

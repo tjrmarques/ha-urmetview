@@ -4,15 +4,17 @@ The session port is not fixed - the device picks a fresh one and it is not
 announced on the LAN broadcast, so it has to be discovered every time. Four
 strategies are implemented here, cheapest first:
 
-1. :func:`async_lan_search` - PPPP's own LAN discovery. The transport is
-   standard PPPP/CS2, so ``MSG_LAN_SEARCH`` broadcast to UDP 32108 should make
-   the device answer *from its current session port*. Entirely local and
-   instant. Unproven on this device, which is why the others exist.
+1. :func:`async_lan_search` - PPPP's own LAN discovery, and **the one that
+   works**. Broadcasting ``MSG_LAN_SEARCH`` to UDP 32108 makes the device
+   answer from its current session port. Verified against the real device: it
+   replied from 23117, which a full port scan independently confirmed as the
+   session port. Entirely local, ~2s, and needs no cloud access - but only
+   reaches the device if the client shares its subnet.
 2. :func:`async_check_port` - verify a cached/known port in one round trip.
 3. :func:`async_cloud_lookup` - the app's rendezvous via Urmet's servers.
    Proven, but needs internet.
 4. :func:`async_port_sweep` - brute force checkCam across a port range and see
-   which one answers. Fully local, deterministic, ~20s for the whole range.
+   which one answers. Fully local, deterministic, 30-90s for the whole range.
 
 :func:`async_listen_broadcast` is separate: it catches the device's periodic
 announcement on UDP 6688, which gives the UID and LAN IP (but not the port).
@@ -92,15 +94,18 @@ async def async_lan_search(
     which is exactly the value the cloud lookup exists to tell us. If it works
     here, the integration never needs Urmet's servers at all.
 
-    **Unverified on this device.** The transport is confirmed PPPP/CS2 - every
-    message type matches the published table - but no capture contains a single
-    LAN-search packet or any traffic on 32108, and the phone app never sends
-    one. The captures cannot settle it either way: the phone was on a different
-    subnet from the intercom, so a broadcast could not have reached it.
+    **Verified against the real device.** It replies with a ``0x41`` carrying
+    the short-form packed UID - not the ``0x31`` LAN_NOTIFY stock PPPP
+    documents - so any ``f1`` reply is accepted rather than matching on type.
+    A full port scan independently confirmed the reply's source port as the
+    session port.
 
-    Two probe encodings are sent because implementations disagree on whether
-    the magic byte is included, and a wrong guess fails silently - the same
-    trap as the cloud lookup's UID packing.
+    Only reaches the device if the client shares its subnet; a broadcast cannot
+    cross. That is why earlier captures showed nothing - they were all taken
+    from a different subnet.
+
+    Both probe encodings are still sent, since only one has been observed
+    working and the other costs a single datagram.
     """
     transport, collector = await _open(broadcast=True)
     probes = (
@@ -186,18 +191,14 @@ async def async_cloud_lookup(uid: str, timeout: float = 4.0) -> list[Candidate]:
             with contextlib.suppress(OSError):
                 transport.sendto(hello, (server, p.CLOUD_PORT))
         await asyncio.sleep(0.3)
-        # Send both UID packings. The spec puts our port at offset 20, the
-        # prototype that was actually observed working puts it at 22, and a
-        # wrong packing is rejected with a status byte rather than an error we
-        # would notice. Sending both costs one extra datagram per server.
-        lookups = (
-            p.build_cloud_lookup(uid, local_port),
-            p.build_cloud_lookup_alt(uid, local_port),
-        )
-        for lookup in lookups:
-            for server in servers:
-                with contextlib.suppress(OSError):
-                    transport.sendto(lookup, (server, p.CLOUD_PORT))
+        # The servers were tested against both UID packings from spec section
+        # 2b - port at offset 20 and at offset 22 - and accept either. The
+        # documented offset-20 form is used; pack_uid_long_alt is kept for
+        # reference only.
+        lookup = p.build_cloud_lookup(uid, local_port)
+        for server in servers:
+            with contextlib.suppress(OSError):
+                transport.sendto(lookup, (server, p.CLOUD_PORT))
         await asyncio.sleep(timeout)
     finally:
         transport.close()
@@ -212,9 +213,8 @@ async def async_cloud_lookup(uid: str, timeout: float = 4.0) -> list[Candidate]:
                 _LOGGER.debug("Cloud accepted the lookup")
             else:
                 _LOGGER.warning(
-                    "Cloud rejected a lookup (status 0x%02x). Both UID packings were "
-                    "sent, so one rejection is expected if the other was accepted.",
-                    response.status,
+                    "Cloud rejected the lookup (status 0x%02x) - most likely the UID "
+                    "packing", response.status,
                 )
             continue
         if response.is_candidate and response.host and response.port:
@@ -240,7 +240,7 @@ async def async_port_sweep(
     """Send checkCam to every port in a range and see which answers.
 
     Deterministic and fully local. At the default rate the whole ephemeral range
-    takes about 20 seconds, and it only has to run once per device session.
+    takes up to a minute or so, and it only has to run once per device session.
 
     The device answers the session ack (``0x42``) from the port that received
     the request, so the reply's source port is the answer.
