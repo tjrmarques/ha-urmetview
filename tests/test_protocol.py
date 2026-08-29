@@ -230,10 +230,6 @@ def _run_standalone() -> int:
     return 1 if failures else 0
 
 
-if __name__ == "__main__":
-    raise SystemExit(_run_standalone())
-
-
 def test_both_cloud_uid_packings_are_36_bytes_and_differ():
     """Two layouts exist; the live servers accept both.
 
@@ -251,3 +247,7 @@ def test_both_cloud_uid_packings_are_36_bytes_and_differ():
     assert spec[20:22] == b"\x34\x12"
     assert alt[22:24] == b"\x34\x12"
     assert alt[:17] == spec[:17]
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run_standalone())

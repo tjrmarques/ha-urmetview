@@ -16,7 +16,7 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -28,7 +28,7 @@ from .const import (
 )
 from . import doorbell as doorbell_mirror
 from .media import MediaPipeline
-from .urmet import UrmetError, UrmetSession
+from .urmet import UrmetAuthError, UrmetError, UrmetSession
 from .urmet import audio as urmet_audio
 from .urmet import discovery
 from .urmet.const import DEFAULT_QUALITY, DEFAULT_TALK_REPEAT
@@ -184,7 +184,9 @@ class UrmetCoordinator:
         await self.pipeline.async_stop()
         await self._async_disconnect()
 
-    async def _async_resolve(self) -> tuple[str, int]:
+    async def _async_resolve(
+        self, exclude: Collection[tuple[str, int]] = ()
+    ) -> tuple[str, int]:
         """Find the device's current address.
 
         The session port changes per session, so a cached value is only a hint;
@@ -198,6 +200,7 @@ class UrmetCoordinator:
             # Once the host is known the sweep is a fully local fallback, which
             # matters on a reconnect after the device has rotated its port.
             allow_sweep=bool(self.host),
+            exclude=exclude,
         )
         if candidate is None:
             raise UrmetError(
@@ -207,23 +210,55 @@ class UrmetCoordinator:
         return candidate.host, candidate.port
 
     async def _async_connect(self) -> None:
+        """Connect, retrying once with fresh discovery if the port went stale.
+
+        Discovery and login are separate round trips, and the device can move
+        its session port in between - the port answers when probed and is dead
+        seconds later. One retry with the cached port cleared turns that race
+        into a slower connect instead of a failed setup.
+        """
         async with self._connect_lock:
             if self.session is not None and self.session.connected:
                 return
-            host, port = await self._async_resolve()
-            session = UrmetSession(host, port, self.uid, self.auth_hash, self.username)
-            session.on_video = self._on_video
-            session.on_audio = self._on_audio
-            await session.async_connect()
-            with contextlib.suppress(UrmetError):
-                await session.async_query_device_info()
+            failed: list[tuple[str, int]] = []
+            try:
+                await self._async_connect_once(failed)
+            except UrmetAuthError:
+                raise  # a bad hash will not fix itself
+            except UrmetError as err:
+                _LOGGER.debug(
+                    "First connect attempt failed (%s), rediscovering without %s",
+                    err,
+                    failed or "any exclusions",
+                )
+                self.port = None
+                await self._async_connect_once(failed)
 
-            self.session = session
-            self.host, self.port = host, port
-            self.available = True
-            self.last_error = None
-            _LOGGER.info("Connected to Urmet intercom at %s:%s", host, port)
-            self._notify()
+    async def _async_connect_once(
+        self, failed: list[tuple[str, int]] | None = None
+    ) -> None:
+        """One discovery-and-login attempt.
+
+        Appends the address it tried to ``failed`` before logging in, so a
+        caller retrying after an exception knows which address not to pick
+        again.
+        """
+        host, port = await self._async_resolve(failed or ())
+        if failed is not None:
+            failed.append((host, port))
+        session = UrmetSession(host, port, self.uid, self.auth_hash, self.username)
+        session.on_video = self._on_video
+        session.on_audio = self._on_audio
+        await session.async_connect()
+        with contextlib.suppress(UrmetError):
+            await session.async_query_device_info()
+
+        self.session = session
+        self.host, self.port = host, port
+        self.available = True
+        self.last_error = None
+        _LOGGER.info("Connected to Urmet intercom at %s:%s", host, port)
+        self._notify()
 
     async def _async_disconnect(self) -> None:
         session, self.session = self.session, None

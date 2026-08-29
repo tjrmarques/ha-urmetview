@@ -162,6 +162,7 @@ class UrmetSession(asyncio.DatagramProtocol):
 
         self._current_stream_is_video = False
         self._connected = False
+        self._unreachable: Exception | None = None
 
     # -- lifecycle ----------------------------------------------------------
 
@@ -319,6 +320,11 @@ class UrmetSession(asyncio.DatagramProtocol):
         """
         frame: bytes | None = None
         for attempt in range(retries):
+            if self._unreachable is not None:
+                raise UrmetError(
+                    f"Nothing is listening on {self.host}:{self.port} - "
+                    "the device's session port has changed"
+                )
             future: asyncio.Future[p.CommandResponse] = self._loop.create_future()
             self._pending.setdefault(expect_subcmd, deque()).append(future)
             try:
@@ -472,7 +478,25 @@ class UrmetSession(asyncio.DatagramProtocol):
                 return
 
     def error_received(self, exc: Exception) -> None:
+        """ICMP errors surface here on a connected UDP socket.
+
+        Connection-refused means an ICMP port-unreachable came back: nothing is
+        listening on that port, so every retry will fail the same way. Give up
+        at once and fail anything waiting, rather than spending the full retry
+        budget - three eight-second timeouts - discovering it slowly.
+        """
         _LOGGER.debug("UDP error on session to %s:%s: %s", self.host, self.port, exc)
+        if isinstance(exc, ConnectionRefusedError):
+            self._unreachable = exc
+            for futures in self._pending.values():
+                for future in futures:
+                    if not future.done():
+                        future.set_exception(
+                            UrmetError(
+                                f"Nothing is listening on {self.host}:{self.port} - "
+                                "the device's session port has changed"
+                            )
+                        )
 
     def connection_lost(self, exc: Exception | None) -> None:
         self._connected = False

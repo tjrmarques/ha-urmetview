@@ -178,21 +178,52 @@ The integration itself tries them in this order, cheapest first:
 | Step | When | Cost |
 |---|---|---|
 | The `host:port` you configured | only if you set **both** | ~1.5 s |
-| LAN search (broadcast to :32108) — **unverified** | always | 2 s |
+| LAN search (broadcast to :32108) | always | 2 s |
 | Cloud lookup via `*.caycctv.com` | unless disabled in options | ~4 s |
 | Local port scan | only if a Host is set | 30-90 s, 64k packets |
 
-LAN search is speculative: the transport is confirmed PPPP/CS2, and PPPP
-devices answer a broadcast on 32108 *from their session port*, which would make
-the cloud unnecessary. But no capture contains a single such packet, and the
-phone app never sends one — though it never could have, being on a different
-subnet from the intercom. It costs 2 seconds to try, and
-`tools/urmet_probe.py` reports whether it works.
+**LAN search works**, which means the integration can run entirely cloud-free
+as long as Home Assistant shares a subnet with the intercom. Broadcasting
+`f1 30 00 00` to UDP 32108 makes the device answer from its current session
+port — the exact value the cloud lookup exists to provide. It went unnoticed
+for a long time only because every early capture was taken from a different
+subnet, and a broadcast cannot cross one. Verified against the real device: it
+replied from port 23117, which an independent full port scan confirmed as the
+session port.
 
 The scan is last because it is by far the most expensive. Turning off **Use
 Urmet's servers to find the device** in the options skips the cloud step, so
 discovery never leaves your network — at the cost of falling through to the
 scan whenever the port has changed.
+
+Whichever step finds the device, the integration uses the port the reply
+actually **came from**, not the port it asked. The device sometimes answers a
+probe from a short-lived socket, and taking the asked-for port at face value
+sends the session to an address nothing is listening on.
+
+### Troubleshooting discovery
+
+Turn on debug logging first:
+
+```yaml
+# configuration.yaml
+logger:
+  logs:
+    custom_components.urmetview: debug
+```
+
+| What you see | What it means |
+|---|---|
+| `Found via LAN search: …` then `Connection refused` | The port went stale between discovery and login. The integration now retries once, excluding the address that just failed. |
+| `Probed <ip>:<a> but the session ack came from port <b>` | Normal, and handled — the session goes to `<b>`. |
+| `LAN search got no reply` | Home Assistant is on a different subnet or VLAN from the intercom, or broadcast is filtered. Set the Host so the local port scan can act as the fallback. |
+| `Cloud lookup returned no candidates` | Outbound UDP 32100 is blocked, or `*.caycctv.com` does not resolve. |
+| `Could not locate the intercom by any method` | Set both Host and Port explicitly to bypass discovery. |
+
+`python3 tools/urmet_probe.py --host <ip>` runs the same steps from a laptop
+and prints the outcome of every one, including which port each answered from.
+Run it from a machine on the intercom's subnet — from anywhere else the LAN
+search result is meaningless rather than negative.
 
 ### 3. Watch the video
 

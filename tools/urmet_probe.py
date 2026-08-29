@@ -9,7 +9,7 @@ method we can rely on so the integration can stop depending on Urmet's cloud.
     # try everything except the sweep
     python3 tools/urmet_probe.py --uid URMABB-700171-SMCYN
 
-    # include the brute-force sweep (needs --host, takes ~20s)
+    # include the brute-force sweep (needs --host, takes 30-90s)
     python3 tools/urmet_probe.py --host 10.0.50.6 --sweep
 
     # just listen for the device's own announcement
@@ -26,6 +26,20 @@ import asyncio
 import sys
 
 from _common import DEFAULT_UID, discovery, setup_logging
+
+
+def _describe(asked: int, answered: int | None) -> str:
+    """Say not just whether a port answered, but which port did.
+
+    The distinction matters: the device sometimes answers from a port other
+    than the one probed, and that answering port is the one a session must go
+    to. Reporting only "OK" hides the mismatch that breaks the login later.
+    """
+    if answered is None:
+        return "no reply"
+    if answered == asked:
+        return "session OK"
+    return f"session OK, but answered from port {answered} - USE THAT ONE"
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -49,18 +63,16 @@ async def _run(args: argparse.Namespace) -> int:
 
     # 1. cached / supplied port
     if args.host and args.port:
-        ok = await discovery.async_check_port(args.host, args.port, args.uid)
-        results.append(("supplied port", f"{args.host}:{args.port} -> {'ALIVE' if ok else 'no reply'}"))
+        answered = await discovery.async_probe_port(args.host, args.port, args.uid)
+        results.append(("supplied port", f"{args.host}:{args.port} -> {_describe(args.port, answered)}"))
 
     # 2. LAN search - the one we actually want to work
     print("Trying PPPP LAN search (broadcast to 32108)...")
     lan = await discovery.async_lan_search(timeout=args.timeout)
     if lan:
         for candidate in lan:
-            ok = await discovery.async_check_port(candidate.host, candidate.port, args.uid)
-            results.append(
-                ("LAN SEARCH", f"{candidate} -> {'session OK' if ok else 'replied but no session'}")
-            )
+            answered = await discovery.async_probe_port(candidate.host, candidate.port, args.uid)
+            results.append(("LAN SEARCH", f"{candidate} -> {_describe(candidate.port, answered)}"))
     else:
         results.append(("LAN search", "no reply - device likely does not answer LAN search"))
 
@@ -68,8 +80,8 @@ async def _run(args: argparse.Namespace) -> int:
     if not args.no_cloud:
         print("Trying cloud rendezvous...")
         for candidate in await discovery.async_cloud_lookup(args.uid, timeout=args.timeout):
-            ok = await discovery.async_check_port(candidate.host, candidate.port, args.uid)
-            results.append(("cloud", f"{candidate} -> {'session OK' if ok else 'no session'}"))
+            answered = await discovery.async_probe_port(candidate.host, candidate.port, args.uid)
+            results.append(("cloud", f"{candidate} -> {_describe(candidate.port, answered)}"))
         if not any(r[0] == "cloud" for r in results):
             results.append(("cloud", "no candidates returned"))
 
@@ -94,10 +106,14 @@ async def _run(args: argparse.Namespace) -> int:
     for method, outcome in results:
         print(f"  {method:<14} {outcome}")
     print()
+    if any("answered from port" in o for _, o in results):
+        print("NOTE: the device answered from a different port than it was asked on.")
+        print("      The integration follows the answering port; earlier builds did not,")
+        print("      which is what caused 'Connection refused' right after discovery.\n")
     if any(m == "LAN SEARCH" and "session OK" in o for m, o in results):
         print("LAN search works -> the integration can be fully cloud-free.")
     elif any(m == "PORT SWEEP" for m, o in results):
-        print("Sweep works -> cloud-free, at the cost of a ~20s scan per reconnect.")
+        print("Sweep works -> cloud-free, at the cost of a 30-90s scan per reconnect.")
     else:
         print("Falling back to cloud lookup. Re-run with --sweep to test the local alternative.")
     return 0

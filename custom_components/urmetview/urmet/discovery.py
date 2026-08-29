@@ -10,7 +10,8 @@ strategies are implemented here, cheapest first:
    replied from 23117, which a full port scan independently confirmed as the
    session port. Entirely local, ~2s, and needs no cloud access - but only
    reaches the device if the client shares its subnet.
-2. :func:`async_check_port` - verify a cached/known port in one round trip.
+2. :func:`async_probe_port` - ask a candidate port and learn which port
+   actually answers, which is not always the one asked.
 3. :func:`async_cloud_lookup` - the app's rendezvous via Urmet's servers.
    Proven, but needs internet.
 4. :func:`async_port_sweep` - brute force checkCam across a port range and see
@@ -26,6 +27,7 @@ import asyncio
 import contextlib
 import logging
 import socket
+from collections.abc import Collection
 from dataclasses import dataclass
 
 from . import protocol as p
@@ -135,10 +137,19 @@ async def async_lan_search(
 # --- 2. Verify a known port -------------------------------------------------
 
 
-async def async_check_port(host: str, port: int, uid: str, timeout: float = 1.5) -> bool:
-    """Send checkCam and wait for the session ack - one round trip.
+async def async_probe_port(
+    host: str, port: int, uid: str, timeout: float = 1.5
+) -> int | None:
+    """Send checkCam and return the port the session ack came *from*.
 
-    Used to validate a cached port before falling back to anything slower.
+    Returns the responding port rather than a yes/no, because the device does
+    not always answer from the port it was asked on. Its LAN-search reply in
+    particular can come from a short-lived socket, so trusting that port sends
+    the session somewhere nothing is listening - which surfaces much later as
+    ECONNREFUSED and a login that never completes.
+
+    Answering from a different port is not a failure; it is the device saying
+    where to go, so callers should use what comes back here.
     """
     transport, collector = await _open()
     payload = p.build_simple(p.MSG_CHECKCAM, p.pack_uid_short(uid))
@@ -148,17 +159,21 @@ async def async_check_port(host: str, port: int, uid: str, timeout: float = 1.5)
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
             for (src_host, src_port), data in collector.packets:
-                if src_host != host:
+                if src_host != host or len(data) < 2 or data[0] != p.MAGIC:
                     continue
-                if len(data) >= 2 and data[0] == p.MAGIC and data[1] in (
-                    p.MSG_SESSION_ACK,
-                    p.MSG_PING_ACK,
-                ):
-                    return True
+                if data[1] not in (p.MSG_SESSION_ACK, p.MSG_PING_ACK):
+                    continue
+                if src_port != port:
+                    _LOGGER.debug(
+                        "Probed %s:%s but the session ack came from port %s - "
+                        "using that instead",
+                        host, port, src_port,
+                    )
+                return src_port
             await asyncio.sleep(0.05)
     finally:
         transport.close()
-    return False
+    return None
 
 
 # --- 3. Cloud rendezvous ----------------------------------------------------
@@ -313,17 +328,32 @@ async def async_find_device(
     cached_port: int | None = None,
     allow_cloud: bool = True,
     allow_sweep: bool = False,
+    exclude: Collection[tuple[str, int]] = (),
 ) -> Candidate | None:
     """Try every strategy in order of cost and return the first that works.
 
     Logs the outcome of each step. Without that a failure is just "not found",
     which is indistinguishable between a routing problem, a blocked broadcast,
     a cloud outage and a device that is simply off.
+
+    ``exclude`` skips addresses already known to be dead. An address can answer
+    a probe and still refuse the session moments later, and without this a
+    retry just rediscovers the same dead port and fails identically.
     """
-    if host and cached_port:
-        if await async_check_port(host, cached_port, uid):
-            _LOGGER.debug("Found via supplied/cached address %s:%s", host, cached_port)
-            return Candidate(host, cached_port, "cached")
+    skip = set(exclude)
+
+    def _accept(candidate: Candidate) -> Candidate | None:
+        """Drop a candidate that is on the exclude list."""
+        if (candidate.host, candidate.port) in skip:
+            _LOGGER.debug("Skipping %s - already failed this round", candidate)
+            return None
+        return candidate
+
+    if host and cached_port and (host, cached_port) not in skip:
+        answered = await async_probe_port(host, cached_port, uid)
+        if answered is not None and (found := _accept(Candidate(host, answered, "cached"))):
+            _LOGGER.debug("Found via supplied/cached address %s:%s", host, answered)
+            return found
         _LOGGER.debug(
             "No reply from the supplied address %s:%s - the port may have changed",
             host,
@@ -337,9 +367,15 @@ async def async_find_device(
             "are on different subnets or VLANs, since the broadcast cannot cross."
         )
     for candidate in replies:
-        if await async_check_port(candidate.host, candidate.port, uid):
-            _LOGGER.debug("Found via LAN search: %s", candidate)
-            return candidate
+        if (candidate.host, candidate.port) in skip:
+            _LOGGER.debug("Skipping %s - already failed this round", candidate)
+            continue
+        answered = await async_probe_port(candidate.host, candidate.port, uid)
+        if answered is not None and (
+            found := _accept(Candidate(candidate.host, answered, candidate.source))
+        ):
+            _LOGGER.debug("Found via LAN search: %s", found)
+            return found
         _LOGGER.debug("LAN search replied from %s but no session followed", candidate)
 
     if allow_cloud:
@@ -351,9 +387,15 @@ async def async_find_device(
                 ", ".join(CLOUD_HOSTS_DISPLAY),
             )
         for candidate in candidates:
-            if await async_check_port(candidate.host, candidate.port, uid):
-                _LOGGER.debug("Found via cloud lookup: %s", candidate)
-                return candidate
+            if (candidate.host, candidate.port) in skip:
+                _LOGGER.debug("Skipping %s - already failed this round", candidate)
+                continue
+            answered = await async_probe_port(candidate.host, candidate.port, uid)
+            if answered is not None and (
+                found := _accept(Candidate(candidate.host, answered, "cloud"))
+            ):
+                _LOGGER.debug("Found via cloud lookup: %s", found)
+                return found
             _LOGGER.debug(
                 "Cloud offered %s but it did not answer - unreachable from here, "
                 "or the address is a relay rather than the LAN one",
@@ -362,10 +404,10 @@ async def async_find_device(
 
     if allow_sweep and host:
         _LOGGER.debug("Sweeping ports on %s as a last resort", host)
-        found = await async_port_sweep(host, uid)
-        if found:
-            _LOGGER.debug("Found via port sweep: %s", found[0])
-            return found[0]
+        for candidate in await async_port_sweep(host, uid):
+            if (found := _accept(candidate)) is not None:
+                _LOGGER.debug("Found via port sweep: %s", found)
+                return found
 
     _LOGGER.warning(
         "Could not locate the intercom by any method (LAN search, cloud lookup%s). "
