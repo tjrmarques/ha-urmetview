@@ -14,16 +14,20 @@ separately.
 Self-contained on purpose: the repo's tools/ import the integration's protocol
 package, which is no use on a laptop that has not got the repo.
 
-    # find the device, then log in - the normal case
-    uv run urmet_login.py --auth <32-hex-hash>
+    # everything: LAN search, cloud, sweep - then log in to each and compare
+    uv run urmet_login.py
 
-    # pin the port, skipping discovery
-    uv run urmet_login.py --auth <hash> --host 10.0.50.6 --port 27754
+    # local only, and skip the 30-60s scan
+    uv run urmet_login.py --no-cloud --no-sweep
 
-    # try every port that answers, and report which one logs in
-    uv run urmet_login.py --auth <hash> --host 10.0.50.6 --all
+    # pin a port, no discovery at all
+    uv run urmet_login.py --host 10.0.50.6 --port 10169
 
-The hash is the 32 hex characters captured from a real app login.
+The UID and hash default to the captured ones; --auth overrides.
+
+It tries *every* candidate rather than stopping at the first success, because
+the useful output is which discovery method yields a port that actually logs
+in - not merely that one of them does.
 """
 
 from __future__ import annotations
@@ -34,6 +38,9 @@ import socket
 import struct
 import time
 
+DEFAULT_UID = "URMABB-700171-SMCYN"
+DEFAULT_AUTH = "A8935C8DA4ABAD9782B7045054680D67"
+
 MAGIC = 0xF1
 MSG_CHECKCAM = 0x41
 MSG_SESSION_ACK = 0x42
@@ -42,6 +49,13 @@ MSG_ACK = 0xD1
 MSG_PING = 0xE0
 MSG_PING_ACK = 0xE1
 MSG_LAN_SEARCH = 0x30
+MSG_CLOUD_HELLO = 0x00
+MSG_CLOUD_LOOKUP = 0x20
+MSG_CLOUD_STATUS = 0x21
+MSG_CLOUD_CANDIDATE = 0x40
+
+CLOUD_HOSTS = ("p2p1.caycctv.com", "p2p2.caycctv.com", "p2p3.caycctv.com")
+CLOUD_PORT = 32100
 
 MARKER_CMD = b"\xa3\x01\x00\xff"
 CHANNEL_COMMAND = 0x00
@@ -186,6 +200,107 @@ def probe(host: str, port: int, uid: str, wait: float = 1.5) -> int | None:
     return None
 
 
+def cloud_lookup(uid: str, wait: float = 4.0) -> list[tuple[str, int]]:
+    """Ask Urmet's rendezvous servers where the device is.
+
+    The servers answer with both a LAN and a public/relay address; only the
+    LAN one is usable from here, so private addresses sort first.
+    """
+    servers: list[str] = []
+    for hostname in CLOUD_HOSTS:
+        try:
+            for info in socket.getaddrinfo(
+                hostname, CLOUD_PORT, proto=socket.IPPROTO_UDP
+            ):
+                servers.append(info[4][0])
+        except OSError:
+            continue
+    if not servers:
+        print("   DNS failed for all three rendezvous servers")
+        return []
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("", 0))
+    local_port = sock.getsockname()[1]
+    found: list[tuple[str, int]] = []
+    try:
+        for server in servers:
+            try:
+                sock.sendto(simple(MSG_CLOUD_HELLO), (server, CLOUD_PORT))
+            except OSError:
+                pass
+        time.sleep(0.3)
+        # 36-byte form with our local port at offset 20, per the spec.
+        payload = pack_uid(uid) + local_port.to_bytes(2, "little") + b"\x00" * 14
+        for server in servers:
+            try:
+                sock.sendto(simple(MSG_CLOUD_LOOKUP, payload), (server, CLOUD_PORT))
+            except OSError:
+                pass
+        end = time.time() + wait
+        while time.time() < end:
+            sock.settimeout(max(0.05, end - time.time()))
+            try:
+                packet = sock.recv(2048)
+            except (TimeoutError, OSError):
+                break
+            if len(packet) < 4 or packet[0] != MAGIC:
+                continue
+            if packet[1] == MSG_CLOUD_STATUS and len(packet) >= 8:
+                if packet[4] != 0:
+                    print(f"   cloud rejected the lookup (status 0x{packet[4]:02x})")
+                continue
+            if packet[1] != MSG_CLOUD_CANDIDATE or len(packet) < 20:
+                continue
+            port = int.from_bytes(packet[6:8], "little")
+            host = ".".join(str(b) for b in reversed(packet[8:12]))
+            if (host, port) not in found:
+                found.append((host, port))
+    finally:
+        sock.close()
+    found.sort(key=lambda c: not c[0].startswith(("10.", "192.168.", "172.")))
+    return found
+
+
+def sweep(host: str, uid: str, rate: int = 20000) -> list[int]:
+    """checkCam every port and return all that answer, ascending.
+
+    All of them, not the first: the device keeps several sockets open and they
+    do not all serve sessions, which is the whole point of this exercise.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("", 0))
+    payload = simple(MSG_CHECKCAM, pack_uid(uid))
+    started = time.time()
+    answered: set[int] = set()
+    try:
+        sent = 0
+        for port in range(1024, 65536):
+            try:
+                sock.sendto(payload, (host, port))
+            except OSError:
+                time.sleep(0.002)
+            sent += 1
+            if sent % 256 == 0:
+                behind = started + sent / rate - time.time()
+                if behind > 0:
+                    time.sleep(behind)
+        print(f"   swept {sent} ports in {time.time() - started:.0f}s, listening 3s...")
+        end = time.time() + 3.0
+        while time.time() < end:
+            sock.settimeout(max(0.05, end - time.time()))
+            try:
+                packet, (rhost, rport) = sock.recvfrom(2048)
+            except (TimeoutError, OSError):
+                break
+            if rhost == host and len(packet) >= 2 and packet[0] == MAGIC:
+                if packet[1] in (MSG_SESSION_ACK, MSG_PING_ACK):
+                    answered.add(rport)
+    finally:
+        sock.close()
+    return sorted(answered)
+
+
 # --- the actual login -------------------------------------------------------
 
 
@@ -326,62 +441,106 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--auth", required=True, help="32-hex-char auth hash")
-    ap.add_argument("--uid", default="URMABB-700171-SMCYN")
-    ap.add_argument("--host", help="skip LAN search")
-    ap.add_argument("--port", type=int, help="skip the probe too")
+    ap.add_argument(
+        "--auth",
+        default=DEFAULT_AUTH,
+        help="32-hex-char auth hash (defaults to the captured one)",
+    )
+    ap.add_argument("--uid", default=DEFAULT_UID)
+    ap.add_argument("--host", help="device LAN IP")
+    ap.add_argument("--port", type=int, help="skip discovery entirely")
     ap.add_argument("--username", default="admin")
-    ap.add_argument("--all", action="store_true", help="try every port that answers")
+    ap.add_argument("--no-cloud", action="store_true")
+    ap.add_argument("--no-sweep", action="store_true", help="skip the 30-60s scan")
+    ap.add_argument(
+        "--first",
+        action="store_true",
+        help="stop at the first login that works (default: try all, to compare)",
+    )
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
 
     print(f"\nUrmet login test - UID {args.uid}")
+    candidates: list[tuple[str, int, str]] = []
+    host = args.host
 
-    if args.host and args.port:
-        candidates = [(args.host, args.port)]
-        print(f"\n   using {args.host}:{args.port} as given, no discovery")
+    if args.port:
+        candidates.append((host or args.host, args.port, "given"))
+        print(f"\n   using {host}:{args.port} as given, no discovery")
     else:
         print("\n   LAN search (broadcast f1 30 to 32108)...")
-        replies = lan_search()
-        if args.host:
-            replies = [r for r in replies if r[0] == args.host]
-        if not replies:
-            print("   no reply. Pass --host and --port, or check the subnet.")
-            return 1
-        candidates = []
-        for host, port in replies:
-            print(f"   reply from {host}:{port}")
-            answered = probe(host, port, args.uid)
+        for reply_host, reply_port in lan_search():
+            if args.host and reply_host != args.host:
+                continue
+            print(f"   reply from {reply_host}:{reply_port}")
+            host = host or reply_host
+            answered = probe(reply_host, reply_port, args.uid)
             if answered is None:
-                print(f"      checkCam to {port}: no session ack")
-                print("      -> the LAN-search port is not a session port. That is")
-                print("         the thing to know: discovery must treat the reply as")
-                print("         'the device is at this IP', not 'the session is here'.")
-                candidates.append((host, port))
-            elif answered == port:
-                print(f"      checkCam to {port}: acked from the same port")
-                candidates.append((host, port))
+                print(f"      checkCam to {reply_port}: no session ack")
             else:
-                print(f"      checkCam to {port}: acked from port {answered} instead")
-                print(f"      -> {answered} is where the session should go")
-                candidates.append((host, answered))
+                if answered != reply_port:
+                    print(f"      checkCam acked from port {answered} instead")
+                candidates.append((reply_host, answered, "lan-search"))
+        if not candidates and not host:
+            print("   no LAN search reply and no --host given.")
 
-    ok = False
-    for host, port in candidates:
-        ok = try_login(host, port, args)
-        if ok and not args.all:
+        if not args.no_cloud:
+            print("\n   cloud lookup via caycctv.com...")
+            for cloud_host, cloud_port in cloud_lookup(args.uid):
+                print(f"   cloud says {cloud_host}:{cloud_port}")
+                host = host or cloud_host
+                if (cloud_host, cloud_port) not in [(c[0], c[1]) for c in candidates]:
+                    candidates.append((cloud_host, cloud_port, "cloud"))
+
+        if not args.no_sweep and host:
+            print(f"\n   sweeping {host} for every port that answers checkCam...")
+            for port in sweep(host, args.uid):
+                known = [(c[0], c[1]) for c in candidates]
+                mark = "" if (host, port) in known else " (new)"
+                print(f"   port {port} answers{mark}")
+                if (host, port) not in known:
+                    candidates.append((host, port, "sweep"))
+
+    if not candidates:
+        print("\n   nothing to try. Pass --host, or --host and --port.")
+        return 1
+
+    print()
+    print("=" * 70)
+    print(f"TRYING {len(candidates)} CANDIDATE(S)")
+    print("=" * 70)
+    results: list[tuple[str, int, str, bool]] = []
+    for cand_host, cand_port, source in candidates:
+        ok = try_login(cand_host, cand_port, args)
+        results.append((cand_host, cand_port, source, ok))
+        if ok and args.first:
             break
 
     print()
     print("=" * 70)
-    if ok:
-        print(f"  Login works. Use Host {candidates[0][0]} in the config flow and")
-        print("  leave the port blank so discovery re-finds it each time.")
+    print("VERDICT")
+    print("=" * 70)
+    for cand_host, cand_port, source, ok in results:
+        state = "LOGIN OK" if ok else "no login"
+        print(f"   {cand_host}:{cand_port:<6} via {source:<11} {state}")
+    winners = [r for r in results if r[3]]
+    print()
+    if not winners:
+        print("   Nothing logged in. Either the hash is wrong, or every port that")
+        print("   answers checkCam is a responder rather than a session endpoint.")
+        return 1
+    sources = {r[2] for r in winners}
+    print(f"   Working port(s): {', '.join(str(r[1]) for r in winners)}")
+    if "lan-search" in sources:
+        print("   LAN search found a port that logs in - discovery can stay local.")
     else:
-        print("  No candidate logged in. If the probe acked but the login did not")
-        print("  answer, the port is serving checkCam and nothing else - which is")
-        print("  what the integration keeps tripping over.")
-    return 0 if ok else 1
+        print("   LAN search did NOT produce a working port; it only tells us the")
+        print(
+            f"   device's IP. The working port came from: {', '.join(sorted(sources))}."
+        )
+        print("   -> the integration must stop treating the LAN-search reply port")
+        print("      as the session port.")
+    return 0
 
 
 if __name__ == "__main__":
