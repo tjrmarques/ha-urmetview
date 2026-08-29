@@ -30,6 +30,8 @@ from . import protocol as p
 
 _LOGGER = logging.getLogger(__name__)
 
+CLOUD_HOSTS_DISPLAY = p.CLOUD_HOSTS
+
 LAN_SEARCH_PORT = 32108
 #: Ports worth trying for LAN search. 32108 is the PPPP standard; the others are
 #: cheap to include and cost one datagram each.
@@ -285,22 +287,63 @@ async def async_find_device(
     allow_cloud: bool = True,
     allow_sweep: bool = False,
 ) -> Candidate | None:
-    """Try every strategy in order of cost and return the first that works."""
-    if host and cached_port and await async_check_port(host, cached_port, uid):
-        return Candidate(host, cached_port, "cached")
+    """Try every strategy in order of cost and return the first that works.
 
-    for candidate in await async_lan_search():
+    Logs the outcome of each step. Without that a failure is just "not found",
+    which is indistinguishable between a routing problem, a blocked broadcast,
+    a cloud outage and a device that is simply off.
+    """
+    if host and cached_port:
+        if await async_check_port(host, cached_port, uid):
+            _LOGGER.debug("Found via supplied/cached address %s:%s", host, cached_port)
+            return Candidate(host, cached_port, "cached")
+        _LOGGER.debug(
+            "No reply from the supplied address %s:%s - the port may have changed",
+            host,
+            cached_port,
+        )
+
+    replies = await async_lan_search()
+    if not replies:
+        _LOGGER.debug(
+            "LAN search got no reply. Expected if Home Assistant and the intercom "
+            "are on different subnets or VLANs, since the broadcast cannot cross."
+        )
+    for candidate in replies:
         if await async_check_port(candidate.host, candidate.port, uid):
+            _LOGGER.debug("Found via LAN search: %s", candidate)
             return candidate
+        _LOGGER.debug("LAN search replied from %s but no session followed", candidate)
 
     if allow_cloud:
-        for candidate in await async_cloud_lookup(uid):
+        candidates = await async_cloud_lookup(uid)
+        if not candidates:
+            _LOGGER.debug(
+                "Cloud lookup returned no candidates. Check outbound UDP 32100 is "
+                "allowed and that %s resolve.",
+                ", ".join(CLOUD_HOSTS_DISPLAY),
+            )
+        for candidate in candidates:
             if await async_check_port(candidate.host, candidate.port, uid):
+                _LOGGER.debug("Found via cloud lookup: %s", candidate)
                 return candidate
+            _LOGGER.debug(
+                "Cloud offered %s but it did not answer - unreachable from here, "
+                "or the address is a relay rather than the LAN one",
+                candidate,
+            )
 
     if allow_sweep and host:
+        _LOGGER.debug("Sweeping ports on %s as a last resort", host)
         found = await async_port_sweep(host, uid)
         if found:
+            _LOGGER.debug("Found via port sweep: %s", found[0])
             return found[0]
 
+    _LOGGER.warning(
+        "Could not locate the intercom by any method (LAN search, cloud lookup%s). "
+        "Setting an explicit host and port in the integration options bypasses "
+        "discovery entirely.",
+        ", port sweep" if allow_sweep and host else "",
+    )
     return None

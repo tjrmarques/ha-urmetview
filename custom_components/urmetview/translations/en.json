@@ -14,10 +14,11 @@
       }
     },
     "error": {
-      "cannot_connect": "Could not reach the intercom. Check it is powered on and on the same network.",
+      "cannot_connect": "Found the intercom but could not open a session. Another client may be holding it; close the UrmetView app, wait a minute and retry.",
       "invalid_auth": "The device rejected this auth hash.",
       "invalid_auth_format": "The auth hash must be 32 hexadecimal characters.",
-      "invalid_uid": "The UID should look like URMABB-700171-SMCYN."
+      "invalid_uid": "The UID should look like URMABB-700171-SMCYN.",
+      "not_found": "Could not find the intercom. If Home Assistant is on a different subnet or VLAN, discovery by broadcast cannot reach it - enter the device's IP in Host and leave Session port blank to scan for the port (takes about 20 seconds)."
     },
     "abort": {
       "already_configured": "This intercom is already set up."

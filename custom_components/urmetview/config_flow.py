@@ -48,6 +48,10 @@ from .urmet.const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+class DeviceNotFound(UrmetError):
+    """Discovery found nothing, as opposed to finding it and failing to log in."""
+
+
 class UrmetConfigFlow(ConfigFlow, domain=DOMAIN):
     """Walk the user through setting the intercom up."""
 
@@ -85,6 +89,8 @@ class UrmetConfigFlow(ConfigFlow, domain=DOMAIN):
                     )
                 except UrmetAuthError:
                     errors["base"] = "invalid_auth"
+                except DeviceNotFound:
+                    errors["base"] = "not_found"
                 except UrmetError as err:
                     _LOGGER.debug("Setup verification failed: %s", err)
                     errors["base"] = "cannot_connect"
@@ -147,11 +153,19 @@ class UrmetConfigFlow(ConfigFlow, domain=DOMAIN):
         Logging in for real is the only meaningful check: the hash is opaque,
         so there is nothing to validate locally beyond its shape.
         """
+        # Allow the port sweep when a host is known: it takes ~20s but is fully
+        # local, so "enter the IP, leave the port blank" just works even when
+        # broadcast cannot cross to the device's subnet and the cloud is
+        # unreachable.
         candidate = await discovery.async_find_device(
-            uid, host=host, cached_port=int(port) if port else None, allow_cloud=True
+            uid,
+            host=host,
+            cached_port=int(port) if port else None,
+            allow_cloud=True,
+            allow_sweep=bool(host),
         )
         if candidate is None:
-            raise UrmetError("Device not found on the network")
+            raise DeviceNotFound
 
         session = UrmetSession(candidate.host, candidate.port, uid, auth, username)
         try:

@@ -189,7 +189,13 @@ class UrmetCoordinator:
         it gets verified before use and rediscovered if stale.
         """
         candidate = await discovery.async_find_device(
-            self.uid, host=self.host, cached_port=self.port, allow_cloud=True
+            self.uid,
+            host=self.host,
+            cached_port=self.port,
+            allow_cloud=True,
+            # Once the host is known the sweep is a fully local fallback, which
+            # matters on a reconnect after the device has rotated its port.
+            allow_sweep=bool(self.host),
         )
         if candidate is None:
             raise UrmetError(
