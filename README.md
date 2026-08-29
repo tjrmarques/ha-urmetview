@@ -217,6 +217,7 @@ constraint, not a design choice.
 
 | Script | Purpose |
 |---|---|
+| `urmet_check.py` | **Single-file** network check — no repo needed, answers which discovery methods work |
 | `urmet_probe.py` | Find the device and its session port; compares discovery methods |
 | `urmet_cli.py` | Video, station selection, lock, gate |
 | `urmet_listen.py` | Sit on an idle logged-in session and log anything unsolicited |
