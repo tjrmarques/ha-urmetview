@@ -130,7 +130,7 @@ def udp_socket(broadcast=False, bind_port=0):
 
 def test_lan_search(uid, host, seconds=3.0, same_net=None):
     print("=" * 70)
-    print("1. PPPP LAN SEARCH  (unproven on this device - this is the real test)")
+    print("1. PPPP LAN SEARCH  (confirmed working - checking it still does)")
     print("=" * 70)
 
     targets = ["255.255.255.255"]
@@ -171,15 +171,57 @@ def test_lan_search(uid, host, seconds=3.0, same_net=None):
             best = (rhost, rport)
     if best:
         print(f"\n   RESULT: LAN SEARCH WORKS. Device answered from port {best[1]}.")
-        print("   -> that is very likely the session port; the cloud is unnecessary.")
+        print("   -> if test 2 confirms it, the cloud is unnecessary.")
     return best
 
 
-# --- 2. Device announcement -------------------------------------------------
+# --- 2. Verify the port with checkCam ---------------------------------------
+
+def test_probe(uid, host, port):
+    """Ask a port for a session and see which port actually answers.
+
+    Not a formality. The device sometimes replies to LAN search from a
+    short-lived socket, and a session sent to that port gets ICMP
+    port-unreachable a few seconds later - which is exactly how this fails in
+    Home Assistant: discovery reports success, then the login dies with
+    'Connection refused'. What matters is the source port of the reply here.
+    """
+    print("=" * 70)
+    print("2. SESSION PROBE  (does that port actually serve sessions?)")
+    print("=" * 70)
+    if port is None:
+        print("   skipped - no port to probe.")
+        return None
+    sock = udp_socket()
+    sock.sendto(frame(0x41, pack_short(uid)), (host, port))
+    print(f"   sent checkCam to {host}:{port}, waiting 2s...")
+    replies = collect(sock, 2.0)
+    sock.close()
+
+    answered = None
+    for (rhost, rport), data in replies:
+        if rhost != host or len(data) < 2 or data[0] != 0xF1:
+            continue
+        print(f"   REPLY from {rhost}:{rport}  {describe(data)}")
+        if data[1] in (0x42, 0xE1):
+            answered = rport
+    if answered is None:
+        print("\n   RESULT: no session ack. That port is not serving sessions,")
+        print("   even though it answered the broadcast. Fall back to the port scan.")
+    elif answered == port:
+        print(f"\n   RESULT: port {port} confirmed. Use it directly.")
+    else:
+        print(f"\n   RESULT: asked {port}, answered from {answered}.")
+        print(f"   -> {answered} is the session port. Anything sent to {port} will be")
+        print("      refused. This is the mismatch that broke setup in Home Assistant.")
+    return answered
+
+
+# --- 3. Device announcement -------------------------------------------------
 
 def test_broadcast(seconds=20.0):
     print("=" * 70)
-    print("2. DEVICE ANNOUNCEMENT on UDP 6688")
+    print("3. DEVICE ANNOUNCEMENT on UDP 6688")
     print("=" * 70)
     try:
         sock = udp_socket(broadcast=True, bind_port=DISCOVERY_PORT)
@@ -206,7 +248,7 @@ def test_broadcast(seconds=20.0):
     print("   RESULT: no announcement seen.")
 
 
-# --- 3. Cloud lookup, both packings -----------------------------------------
+# --- 4. Cloud lookup, both packings -----------------------------------------
 
 def resolve_cloud():
     servers = []
@@ -295,7 +337,7 @@ def test_cloud(uid):
     return spec or proto
 
 
-# --- 4. Port scan -----------------------------------------------------------
+# --- 5. Port scan -----------------------------------------------------------
 
 def test_sweep(uid, host, rate=3000):
     print("=" * 70)
@@ -361,7 +403,10 @@ def main():
     print()
 
     summary = {}
-    summary["lan_search"] = test_lan_search(args.uid, args.host, same_net=shared)
+    lan = test_lan_search(args.uid, args.host, same_net=shared)
+    summary["lan_search"] = lan
+    print()
+    summary["probe"] = test_probe(args.uid, args.host, lan[1] if lan else None)
     print()
     if args.listen:
         test_broadcast()
@@ -377,6 +422,7 @@ def main():
     print("SUMMARY")
     print("=" * 70)
     lan = summary.get("lan_search")
+    probe = summary.get("probe")
     if lan:
         lan_text = "WORKS, port %s" % lan[1]
     elif shared is False:
@@ -384,13 +430,33 @@ def main():
     else:
         lan_text = "no reply"
     print(f"  LAN search : {lan_text}")
+    if lan and probe is None:
+        probe_text = "port %s answered the broadcast but serves no session" % lan[1]
+    elif probe and lan and probe != lan[1]:
+        probe_text = "answered from %s, NOT %s - use %s" % (probe, lan[1], probe)
+    elif probe:
+        probe_text = "port %s confirmed" % probe
+    else:
+        probe_text = "not run"
+    print(f"  Probe      : {probe_text}")
     cloud = summary.get("cloud")
-    print(f"  Cloud      : {'works -> %s' % (cloud[0],) if cloud else 'no candidates'}")
+    if "cloud" not in summary:
+        cloud_text = "skipped"
+    else:
+        cloud_text = "works -> %s" % (cloud[0],) if cloud else "no candidates"
+    print(f"  Cloud      : {cloud_text}")
     sweep = summary.get("sweep")
-    print(f"  Port scan  : {'port %s' % sweep if sweep else 'nothing found'}")
+    if "sweep" not in summary:
+        sweep_text = "skipped"
+    else:
+        sweep_text = "port %s" % sweep if sweep else "nothing found"
+    print(f"  Port scan  : {sweep_text}")
     print()
-    if lan:
-        print("  -> LAN search works: the integration can be fully local and instant.")
+    if probe:
+        print(f"  -> Fully local discovery works; session port {probe}.")
+    elif lan:
+        print("  -> LAN search answers but the session probe did not. The port scan")
+        print("     result below is the one to trust.")
     elif sweep:
         print(f"  -> Use Host {args.host} with Session port {sweep} in the config flow,")
         print("     and you can switch the cloud option off.")
