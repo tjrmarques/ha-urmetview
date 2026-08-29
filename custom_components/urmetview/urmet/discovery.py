@@ -249,31 +249,42 @@ async def async_port_sweep(
     uid: str,
     start: int = 1024,
     end: int = 65535,
-    rate: int = 3000,
+    rate: int = 20000,
     settle: float = 2.0,
 ) -> list[Candidate]:
-    """Send checkCam to every port in a range and see which answers.
+    """Send checkCam to every port in a range and see which answer.
 
-    Deterministic and fully local. At the default rate the whole ephemeral range
-    takes up to a minute or so, and it only has to run once per device session.
+    Deterministic and fully local. Returns **every** port that answered, in
+    ascending order - the device keeps several sockets open (one per cloud
+    rendezvous server, on the evidence) and all of them ack a checkCam, so a
+    single reply is a candidate, not a conclusion.
 
-    The device answers the session ack (``0x42``) from the port that received
-    the request, so the reply's source port is the answer.
+    Pacing is against a deadline rather than a fixed sleep per burst. The
+    obvious ``sleep(0.01)`` every N packets is what made this take 66s for a
+    nominal 3000/s: the OS rounds each sleep up to its timer granularity, so
+    the sleeps, not the packets, set the pace.
     """
     transport, collector = await _open()
     payload = p.build_simple(p.MSG_CHECKCAM, p.pack_uid_short(uid))
-    burst = max(1, rate // 100)
+    loop = asyncio.get_running_loop()
+    started = loop.time()
     try:
         sent = 0
         for port in range(start, end + 1):
             try:
                 transport.sendto(payload, (host, port))
             except OSError:
-                # Buffer full; give the socket a moment rather than dropping.
-                await asyncio.sleep(0.01)
+                # Buffer full; yield and retry this port rather than skip it.
+                await asyncio.sleep(0.005)
+                with contextlib.suppress(OSError):
+                    transport.sendto(payload, (host, port))
             sent += 1
-            if sent % burst == 0:
-                await asyncio.sleep(0.01)
+            if sent % 256 == 0:
+                behind = started + sent / rate - loop.time()
+                await asyncio.sleep(max(0.0, behind))
+        _LOGGER.debug(
+            "Swept %s ports on %s in %.1fs", sent, host, loop.time() - started
+        )
         await asyncio.sleep(settle)
     finally:
         transport.close()
@@ -284,7 +295,13 @@ async def async_port_sweep(
             continue
         if data[1] in (p.MSG_SESSION_ACK, p.MSG_PING_ACK):
             found.setdefault(src_port, Candidate(host, src_port, "port-sweep"))
-    return list(found.values())
+    if len(found) > 1:
+        _LOGGER.debug(
+            "%s ports on %s answered: %s. Only one will accept a login, so all "
+            "are tried in turn.",
+            len(found), host, ", ".join(str(port) for port in sorted(found)),
+        )
+    return [found[port] for port in sorted(found)]
 
 
 # --- LAN announcement -------------------------------------------------------
