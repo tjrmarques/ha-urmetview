@@ -488,10 +488,20 @@ class UrmetSession(asyncio.DatagramProtocol):
         listening on that port, so every retry will fail the same way. Give up
         at once and fail anything waiting, rather than spending the full retry
         budget - three eight-second timeouts - discovering it slowly.
+
+        Also marks the session as no longer connected. Without that, ``connected``
+        keeps reporting true - the transport itself is fine, only the peer is
+        gone - so every call site that gates a reconnect on it (the per-command
+        ``_async_require_session`` check, and the coordinator's 5s keepalive
+        loop) sees a session that looks healthy and never rediscovers the
+        device on its new port. The device rotates its session port on its own
+        schedule, so this is not a rare edge case - it is the normal way a long
+        -lived session ends.
         """
         _LOGGER.debug("UDP error on session to %s:%s: %s", self.host, self.port, exc)
         if isinstance(exc, ConnectionRefusedError):
             self._unreachable = exc
+            self._connected = False
             for futures in self._pending.values():
                 for future in futures:
                     if not future.done():

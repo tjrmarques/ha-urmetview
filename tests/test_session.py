@@ -80,6 +80,38 @@ def test_sending_aborts_once_the_port_is_known_dead() -> None:
     asyncio.run(run())
 
 
+def test_connection_refused_marks_the_session_disconnected() -> None:
+    """The bug behind 'select/select_option: session port has changed'.
+
+    error_received latched _unreachable and failed pending commands, but left
+    ``connected`` reporting true - the transport itself is fine, only the peer
+    is gone. Every reconnect path (the per-command _async_require_session
+    check, and the coordinator's keepalive loop) gates on ``connected``, so a
+    session that lies about being healthy never gets rediscovered on its new
+    port: the device rotates ports on its own schedule, and every command
+    after that failed with the same "port has changed" error forever, with no
+    way back short of restarting the integration.
+    """
+
+    async def run() -> None:
+        session = _session()
+        # Stand in for a session that completed a real handshake, since a
+        # freshly constructed one already reports not-connected and would not
+        # exercise the flip this test is for.
+        session._connected = True
+        session._transport = object()  # only its presence is checked
+        assert session.connected is True
+
+        session.error_received(ConnectionRefusedError(111, "Connection refused"))
+
+        assert session.connected is False, (
+            "a caller checking .connected still sees a healthy session, so it "
+            "will never reconnect to the device's new port"
+        )
+
+    asyncio.run(run())
+
+
 def _run_standalone() -> int:
     failures = 0
     for name, func in sorted(globals().items()):
