@@ -195,6 +195,45 @@ def test_aspect_empty_means_no_filter() -> None:
         assert MediaPipeline("/bin/false", pixel_aspect=value)._aspect_args() == []
 
 
+def test_interleave_delta_is_bounded_when_audio_is_muxed() -> None:
+    """Video must not be held while audio is behind.
+
+    The muxer interleaves by DTS, and the default bound is ten seconds.
+    Measured on this pipeline: audio going quiet at t=2s stopped all output
+    until t=10s. Only relevant with a second input, so a video-only pipeline
+    should not carry the flag.
+    """
+    import asyncio
+
+    async def args_for(enable_audio: bool) -> list[str]:
+        pipeline = MediaPipeline("/bin/false", enable_audio=enable_audio)
+        pipeline.video_port = 1111
+        pipeline.audio_port = 2222
+        captured: list[list[str]] = []
+
+        async def fake_exec(*args, **kwargs):
+            captured.append(list(args))
+            raise OSError("not actually spawning ffmpeg")
+
+        real = asyncio.create_subprocess_exec
+        asyncio.create_subprocess_exec = fake_exec
+        try:
+            try:
+                await pipeline._async_spawn_ffmpeg()
+            except OSError:
+                pass
+        finally:
+            asyncio.create_subprocess_exec = real
+        return captured[0] if captured else []
+
+    with_audio = asyncio.run(args_for(True))
+    assert "-max_interleave_delta" in with_audio
+    assert with_audio[with_audio.index("-max_interleave_delta") + 1] == "100000"
+
+    video_only = asyncio.run(args_for(False))
+    assert "-max_interleave_delta" not in video_only
+
+
 def test_a_bad_aspect_is_dropped_not_passed_on() -> None:
     """A bad setting must degrade to no correction, never break the pipeline."""
     for value in ("wide", "1:2:3", "0/2", "-1/2", "1/", "16x9"):

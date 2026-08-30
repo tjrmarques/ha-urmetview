@@ -259,6 +259,16 @@ class MediaPipeline:
         args += self._aspect_args()
         if self._enable_audio:
             args += ["-c:a", "aac", "-b:a", "64k", "-ar", "16000"]
+            # The muxer interleaves by DTS, so while audio is behind, video is
+            # buffered rather than written - the picture simply stops. It is
+            # bounded by max_interleave_delta, but the default bound is ten
+            # seconds. Measured on this exact pipeline: audio going quiet at
+            # t=2s stopped all output from 2s to 9s, then it resumed. At 100ms
+            # the same test produces no gap at all.
+            #
+            # Losing strict interleaving costs nothing here: this is a live
+            # stream going straight to a player, not a file to seek around in.
+            args += ["-max_interleave_delta", "100000"]
         args += [
             "-f",
             "mpegts",
