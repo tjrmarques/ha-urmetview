@@ -27,9 +27,42 @@ __all__ = [
     "add_common_args",
     "async_resolve",
     "discovery",
+    "load_media_module",
     "protocol",
     "setup_logging",
 ]
+
+
+def load_media_module():
+    """Import the integration's media.py without Home Assistant.
+
+    media.py itself needs nothing from Home Assistant, but importing it
+    through the package would run urmetview/__init__.py, which does. Standing
+    in a bare package with the right __path__ resolves its relative imports
+    and executes nothing else.
+
+    Worth the trouble because the alternative - a second copy of the pipeline
+    in tools/ - is a copy that drifts, and the whole point of running it here
+    is to exercise the code that actually ships.
+    """
+    import importlib.util
+    import types
+
+    component = ROOT / "custom_components" / "urmetview"
+    if "urmetview" not in sys.modules:
+        package = types.ModuleType("urmetview")
+        package.__path__ = [str(component)]
+        sys.modules["urmetview"] = package
+    if "urmetview.media" in sys.modules:
+        return sys.modules["urmetview.media"]
+
+    spec = importlib.util.spec_from_file_location(
+        "urmetview.media", component / "media.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["urmetview.media"] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def add_common_args(
