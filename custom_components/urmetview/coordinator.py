@@ -316,7 +316,7 @@ class UrmetCoordinator:
 
     # -- video on demand ----------------------------------------------------
 
-    async def async_ensure_stream(self) -> str:
+    async def async_ensure_stream(self, *, mark_activity: bool = True) -> str:
         """Bring the device stream up and return the local stream URL.
 
         Deliberately not reference counted. Home Assistant calls
@@ -324,9 +324,21 @@ class UrmetCoordinator:
         would only ever increase and the video channel would stay pinned open.
         Instead the idle monitor watches the muxed output's real TCP consumers,
         which cannot drift out of sync with reality.
+
+        ``mark_activity=False`` is for a snapshot grab (see camera.py), not a
+        real "someone is watching" signal - without this, a periodically
+        refreshed dashboard thumbnail keeps calling this on every poll and
+        each call was unconditionally resetting the idle clock, so the device
+        stream never actually went idle even with nobody's live view open.
+        Still marked when video was not already running, though: a snapshot
+        can be the thing that starts it fresh, and that grace period is what
+        stops the idle monitor tearing it back down in the gap before the
+        snapshot's own ffmpeg process has connected as a real consumer.
         """
+        was_running = self._video_running
         await self._async_start_video()
-        self._mark_activity()
+        if mark_activity or not was_running:
+            self._mark_activity()
         return self.pipeline.stream_url
 
     @callback

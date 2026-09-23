@@ -67,8 +67,14 @@ class UrmetCamera(UrmetEntity, Camera):
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
-        """Grab a single JPEG by running ffmpeg against the live stream."""
-        url = await self.coordinator.async_ensure_stream()
+        """Grab a single JPEG by running ffmpeg against the live stream.
+
+        Not a "someone is watching" signal - a periodically refreshed
+        dashboard thumbnail must not keep the device stream pinned open
+        forever just by polling faster than the idle timeout. See
+        async_ensure_stream's mark_activity for why.
+        """
+        url = await self.coordinator.async_ensure_stream(mark_activity=False)
         return await self._async_snapshot(url, width, height)
 
     async def _async_snapshot(
