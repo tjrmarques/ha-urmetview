@@ -7,7 +7,7 @@ Everything established, measured, and disproved while building a Home Assistant 
 - **Device:** Urmet 1730 + 1730/67 WiFi module
 - **UID:** `URMABB-700171-SMCYN`
 - **Branch:** `claude/home-assistant-urmet-integration-avrllg`
-- **Commits:** 52
+- **Commits:** 53
 - **As of:** 23 Sep 2026
 
 ## Status board
@@ -18,7 +18,7 @@ Everything established, measured, and disproved while building a Home Assistant 
 | Discovery | ✅ **Solved and local.** LAN search returns a working session, no cloud needed. |
 | Doorbell | ✅ **Understood.** Ring is a TCP push to port 32002, detectable by router mirror. |
 | Video in the mux | 🟡 **Fixed and ported (§20); not yet re-tested live.** Both streams now carry a real, explicit per-frame pts in a small container ffmpeg reads timing from (video: local receive-time; audio: the device's own embedded clock) instead of ever trusting `-use_wallclock_as_timestamps` — validated via the sandbox bridge against the real device (audio: zero warnings in a 35s session; video: ~10 isolated, self-correcting single-tick corrections, down from "dozens throughout"), and ported into `media.py`. **Next step: watch the iPhone/browser on the real deployed instance to confirm the freeze/flash and timeline-catch-up symptoms are actually gone.** |
-| Audio in the mux | 🟡 **Redesigned this session (§20); not yet re-tested live.** Superseded the §13 sample-count-derivation fix with an explicit pts decoded from the device's own embedded clock (validated: 398 real frames, zero monotonic violations) — more directly correct, and immune to a real (if narrow) drift risk the old approach had if delivery ever gapped. Required two more fixes to actually work cleanly with the AAC encoder (`pkt.duration`, `-af aresample=async=1000`) — see §20. Ported into `media.py`; same "not yet live-tested" caveat as video. |
+| Audio in the mux | 🟡 **Redesigned this session (§20) + a real quality bug found and fixed (§21).** Timing: superseded the §13 sample-count-derivation fix with an explicit pts decoded from the device's own embedded clock (validated: 398 real frames, zero monotonic violations). Quality: the AAC encode step was clipping — pre-existing, unmasked by the user's first real listen of this pipeline; fixed with `-af volume=-4dB` headroom, confirmed clean across a full real capture including genuine speech. **Awaiting the user's own listening confirmation that it now sounds right**, not just clean by measurement. |
 | Relay fan-out (stage 4) | ✅ **Real bug found and fixed (§17)**, first time this path was ever exercised against a real consumer — duplicate first-GOP delivery to joining consumers. |
 | Push to repo | ✅ **Working as of 14 Sep 2026 (new container).** Normal `git push` succeeds; the bundle workaround is no longer needed. |
 | Session recovery | ✅ **Applied.** §10's `_connected` fix is back in (see below — it had been reverted on purpose, not because of any doubt about it). Also new: the coordinator now detects a *stale* stream (session still `connected`, but no real media for a while) and recovers it, cheap path first — see §15. |
@@ -487,5 +487,29 @@ The session that built this started from §18's plan (decode the device's own em
 1. Live re-test against the real HA instance/device (not yet done - everything above is sandbox-bridge-validated only).
 2. The residual ~10-per-35s isolated video pts-tie corrections, above - not yet root-caused, explicitly deferred.
 3. `coordinator.py` still has no automated test coverage (flagged repeatedly since §15/§16 - still true, still not addressed).
+
+---
+
+## 21 — The AAC encode step clips: pre-existing, unmasked by §20's live test, fixed with headroom
+
+Found immediately after §20 shipped, from the user's first real listening test of the new pipeline: "lots of noise which subsides when someone is talking, but the voice is really low, unintelligible." The user separately confirmed the official UrmetView app gets clean sound from the same device at the same time - good independent evidence the raw stream itself is fine and the defect is downstream, in this integration's own processing.
+
+**Root-caused by signal analysis** (`ffmpeg -af astats` on real captures, not listening - this session has no way to actually hear audio) rather than guessing from the symptom description:
+
+| Stage | Peak level | RMS level |
+|---|---|---|
+| Raw mu-law decode | -0.17 dB (clean) | -14.7 dB |
+| After AAC encode+decode, **no** `aresample` (identical settings to before §20) | **+2.74 dB - clipping** | -17.2 dB |
+| After AAC encode+decode, **with** §20's `aresample=async=1000` | **+2.75 dB - clipping** | -16.9 dB |
+
+**Confirmed pre-existing, not caused by §20's fix**: the clipping is identical with or without `aresample=async=1000` - it happens at the exact `-c:a aac -b:a 64k -ar 16000` settings this project has used since before this session, just never checked by signal analysis (field notes §13 explicitly flagged the live human-perception check as never done, and it stayed undone through §20 too). The raw mu-law signal sits right at 0dBFS with zero headroom (-0.17dB peak), so ffmpeg's own AAC encoder - not a high-end one - has nowhere to absorb its own quantization/reconstruction overshoot, and punches through the ceiling. Clipped, distorted speech is a much better fit for "noise... unintelligible" than an actual gain/level problem - RMS around -15 to -17dB is an ordinary level for voice content, not unusually quiet on its own.
+
+**Fix:** `-af "aresample=async=1000,volume=-4dB"` - a small linear attenuation before the encoder, giving its overshoot room to land under 0dBFS instead of past it. Confirmed sufficient with margin on the same real capture (peak back to -0.4dB clean).
+
+**Validated live against the real device**, including genuine human speech (the user talked into the outdoor station during a bridge capture specifically for this): 32-second capture, checked in 1-second windows end to end, zero windows exceeding 0dBFS (worst case -0.23dB) - versus the unfixed pipeline's measured +2.7dB on the same kind of content. This is a much stronger validation than the earlier synthetic-content checks: real speech, real device, real capture, checked across the whole session rather than in aggregate.
+
+**Honestly qualified:** this session has no way to actually listen to audio, so "clipping is gone" is confirmed directly by measurement, but "sounds correct/intelligible now" is not - that still needs the user's own ears on the real deployment. If it's still not right, the next things to check would be the encoder's own bitrate/quality settings (64k is fairly low for 16kHz-source AAC) or whether the RMS level itself (now a few dB quieter, from the `-4dB` headroom) needs recovering with a safe limiter afterward rather than fixed attenuation beforehand.
+
+**Status: fixed and live-validated by signal measurement. Awaiting the user's own listening confirmation on the real deployment.**
 
 ---

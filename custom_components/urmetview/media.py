@@ -388,7 +388,24 @@ class MediaPipeline:
             # lets it gently stretch/compress (up to 1000 samples/s) to
             # reconcile the two instead of fighting over exact sample
             # boundaries.
-            args += ["-af", "aresample=async=1000"]
+            # volume=-4dB: ffmpeg's native AAC encoder overshoots past
+            # 0dBFS on this content - confirmed via astats measurement on
+            # a real capture, present identically with or without the
+            # aresample fix above (so pre-existing, not caused by it): raw
+            # mu-law decode peaks at a clean -0.17dB, but the same audio
+            # round-tripped through AAC at these settings (64k/16kHz,
+            # otherwise unchanged from before this session) comes back at
+            # +2.7dB - actual clipping, not just close to the ceiling.
+            # Reported live as "lots of noise... voice really low,
+            # unintelligible", which matches clipped/distorted speech
+            # better than a real gain problem: the raw signal already
+            # sits right at full scale with no headroom, so the encoder's
+            # own quantization has nowhere to absorb its reconstruction
+            # error. -4dB gives it room (confirmed clean afterward, peak
+            # back under 0dBFS with margin) at the cost of a few dB of
+            # loudness - a smaller, more defensible trade than shipping
+            # audio that measurably clips.
+            args += ["-af", "aresample=async=1000,volume=-4dB"]
             args += ["-c:a", "aac", "-b:a", "64k", "-ar", "16000"]
             # The muxer interleaves by DTS, so while audio is behind, video is
             # buffered rather than written - the picture simply stops. It is
