@@ -311,8 +311,8 @@ class UrmetCoordinator:
         self.pipeline.feed_video(data, frame_start, keyframe)
 
     @callback
-    def _on_audio(self, data: bytes) -> None:
-        self.pipeline.feed_audio(data)
+    def _on_audio(self, data: bytes, header: bytes | None) -> None:
+        self.pipeline.feed_audio(data, header)
 
     # -- video on demand ----------------------------------------------------
 

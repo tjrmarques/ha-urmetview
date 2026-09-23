@@ -248,18 +248,24 @@ def test_interleave_delta_is_bounded_when_audio_is_muxed() -> None:
     assert "-max_interleave_delta" not in video_only
 
 
-def test_audio_input_has_no_wallclock_and_comes_first() -> None:
+def test_neither_input_uses_wallclock_and_audio_comes_first() -> None:
     """Two confirmed-against-the-real-device fixes, both easy to silently
     regress:
 
-    -use_wallclock_as_timestamps on the audio input stamps each read() with
-    wallclock "now", but ffmpeg samples that once per underlying socket
-    read, not once per logical packet - a burst of already-queued packets
-    lands on one identical pts. Confirmed directly with -af ashowinfo: 13
-    consecutive packets, distinct content, one pts. That is what produced a
-    multi-second, growing audio lag. Audio's format is fully declared, so
-    dropping the flag lets ffmpeg derive pts from sample count instead -
-    immune to read-batching because it never looks at wallclock at all.
+    -use_wallclock_as_timestamps stamps each read() with wallclock "now",
+    but ffmpeg samples that once per underlying socket read, not once per
+    logical packet - a burst of already-queued packets lands on one
+    identical pts, forcing a "Non-monotonic DTS" correction. Confirmed for
+    both streams against the real device (audio: 13 consecutive packets,
+    distinct content, one pts, via -af ashowinfo; video: dozens of
+    "previous: X, current: X" collisions per session). Both streams now
+    arrive pre-timestamped instead - audio wrapped in a NUT container
+    (_audio_mux_loop) carrying a real pts from the device's own embedded
+    clock, video wrapped in an MPEG-TS container (_video_mux_loop)
+    carrying a real pts from local receive-time - so neither input may
+    carry -use_wallclock_as_timestamps at all: it would make ffmpeg
+    discard the real timestamp and guess again from read() timing, the
+    exact mechanism that caused the bug.
 
     Audio must also be the first -i: ffmpeg finishes probing one input
     before connecting to the next, and video listed first measured at 8.2s
@@ -293,11 +299,14 @@ def test_audio_input_has_no_wallclock_and_comes_first() -> None:
     video_i = args.index("tcp://127.0.0.1:1111")
     assert audio_i < video_i, "audio must be listed before video on the command line"
 
-    wallclock_positions = [i for i, a in enumerate(args) if a == "-use_wallclock_as_timestamps"]
-    assert len(wallclock_positions) == 1, "expected exactly one wallclock flag (video only)"
-    assert wallclock_positions[0] > audio_i, (
-        "the wallclock flag must belong to video, not sit ahead of audio's -i"
+    assert "-use_wallclock_as_timestamps" not in args, (
+        "neither input may use wallclock -- both now carry a real, "
+        "explicit pts of their own"
     )
+    # Both inputs carry their real pts inside a container ("-f <fmt> -i
+    # tcp://..."), not as raw elementary-stream bytes.
+    assert args[audio_i - 3 : audio_i - 1] == ["-f", "nut"]
+    assert args[video_i - 3 : video_i - 1] == ["-f", "mpegts"]
 
 
 def test_a_bad_aspect_is_dropped_not_passed_on() -> None:

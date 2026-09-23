@@ -41,7 +41,10 @@ _LOGGER = logging.getLogger(__name__)
 VideoCallback = Callable[[bytes, bool, bool], None]
 """``(data, is_frame_start, is_keyframe)``."""
 
-AudioCallback = Callable[[bytes], None]
+AudioCallback = Callable[[bytes, bytes | None], None]
+"""``(data, header)`` - header is the frame's 27-byte per-frame sub-header on
+a frame-start chunk (see ``protocol.decode_audio_clock_ms``), ``None`` on a
+continuation chunk."""
 
 
 class UrmetError(Exception):
@@ -434,7 +437,7 @@ class UrmetSession(asyncio.DatagramProtocol):
             self._flush_command_buffer()
         elif self.on_audio is not None:
             self.last_media_at = time.monotonic()
-            self.on_audio(payload)
+            self.on_audio(payload, None)
 
     def _handle_media_start(self, media: p.MediaFrameStart) -> None:
         self.last_media_at = time.monotonic()
@@ -450,7 +453,7 @@ class UrmetSession(asyncio.DatagramProtocol):
         elif media.is_audio:
             self.audio_frames += 1
             if self.on_audio is not None:
-                self.on_audio(media.data)
+                self.on_audio(media.data, media.header)
 
     def _flush_command_buffer(self) -> None:
         responses, self._cmd_buffer = p.parse_command_blocks(self._cmd_buffer)

@@ -318,6 +318,10 @@ class MediaFrameStart:
 
     stream_type: int
     data: bytes
+    #: The 27-byte per-frame sub-header (frame marker + stream_type already
+    #: stripped) - mostly unmapped, but see decode_audio_clock_ms for the
+    #: two fields that are.
+    header: bytes
 
     @property
     def is_video(self) -> bool:
@@ -340,7 +344,32 @@ def parse_media_start(payload: bytes) -> MediaFrameStart | None:
     """
     if len(payload) < 5 or payload[0:4] != MARKER_MEDIA_IN:
         return None
-    return MediaFrameStart(stream_type=payload[4], data=payload[MEDIA_HEADER_LEN:])
+    return MediaFrameStart(
+        stream_type=payload[4],
+        data=payload[MEDIA_HEADER_LEN:],
+        header=payload[5:MEDIA_HEADER_LEN],
+    )
+
+
+def decode_audio_clock_ms(header: bytes) -> int:
+    """Decode the device's embedded audio clock into one millisecond value.
+
+    A genuine absolute Unix-seconds field (bytes 11-14 of the 27-byte
+    per-frame header, little-endian) plus an exact +40ms/frame sub-second
+    field (bytes 15-16, little-endian). Confirmed reliable against the real
+    device: zero monotonic violations across 398 real, properly-ordered
+    audio frames, every delta a clean 40ms multiple - this is what
+    media.py uses as audio's real per-frame pts (see its module docstring).
+
+    Video's copy of this same header carries the same two byte offsets,
+    but they mean something different there (an ordinal/tick pair that
+    updates in unpredictable bursts, not smoothly, and was found unusable
+    for a per-frame pts) - this function is audio-specific; media.py uses
+    local receive-time for video instead.
+    """
+    unix_s = int.from_bytes(header[11:15], "little")
+    fine_ms = header[15] + header[16] * 256
+    return unix_s * 1000 + fine_ms
 
 
 def build_audio_out_frame(pcmu: bytes) -> bytes:
