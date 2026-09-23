@@ -67,13 +67,22 @@ class UrmetCamera(UrmetEntity, Camera):
     async def async_camera_image(
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
-        """Grab a single JPEG by running ffmpeg against the live stream.
+        """Grab a single JPEG from the live stream - but only if a live view
+        is already genuinely open.
 
-        Not a "someone is watching" signal - a periodically refreshed
-        dashboard thumbnail must not keep the device stream pinned open
-        forever just by polling faster than the idle timeout. See
-        async_ensure_stream's mark_activity for why.
+        A snapshot must never be what *starts* the device stream. Home
+        Assistant (and some dashboard cards) will call this on their own
+        polling schedule for a thumbnail, with nobody actually watching -
+        confirmed live: a dashboard sitting open was enough to cycle the
+        device stream idle -> streaming -> idle indefinitely, each poll
+        starting a fresh short burst even though the previous one had
+        correctly gone idle in between. mark_activity=False (still used
+        below) only ever stopped a poll from *extending* an already-running
+        stream; it never stopped a poll from *starting* one. This does:
+        no picture is returned rather than waking the device up for it.
         """
+        if not self.coordinator.streaming:
+            return None
         url = await self.coordinator.async_ensure_stream(mark_activity=False)
         return await self._async_snapshot(url, width, height)
 
