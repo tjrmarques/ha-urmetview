@@ -216,15 +216,51 @@ class MediaPipeline:
             "nobuffer",
             "-flags",
             "low_delay",
+        ]
+        if self._enable_audio:
+            args += [
+                # Deliberately NO -use_wallclock_as_timestamps here. ffmpeg
+                # samples wallclock once per underlying socket read(), not
+                # once per logical 320-byte packet - a TCP read can scoop up
+                # several already-queued packets in one call, and they all
+                # land on the exact same pts. Confirmed directly with -af
+                # ashowinfo spliced ahead of the encoder: 13 consecutive
+                # packets, each with different real content, all landing on
+                # one pts. That forces ffmpeg's "Queue input is backward in
+                # time" correction (silently bumping DTS by +1 tick,
+                # repeatedly) on every later packet in the burst, which is
+                # what produced a multi-second, growing audio lag - not the
+                # AAC resample step, not input order, not device-side delay.
+                # Audio's format is fully declared (-ar -ac), so ffmpeg
+                # derives pts purely from sample count instead - immune to
+                # read-batching because it never looks at wallclock at all.
+                # Measured over a 42s capture: video-vs-audio offset stays
+                # bounded at 0.02-0.45s with no growth trend, even with 171
+                # real device delivery gaps over 100ms in that same run.
+                "-f",
+                "mulaw",
+                "-ar",
+                str(AUDIO_SAMPLE_RATE),
+                "-ac",
+                "1",
+                "-thread_queue_size",
+                "512",
+                "-i",
+                f"tcp://127.0.0.1:{self.audio_port}",
+            ]
+        args += [
             # The device's H.264 has no container timing, so let ffmpeg stamp
             # arrival time rather than trusting absent timestamps.
             "-use_wallclock_as_timestamps",
             "1",
-            # Inputs are opened in order, and ffmpeg finishes probing this one
-            # before it even connects to the audio socket - measured at 8.2s on
-            # a live device, during which nothing is muxed at all. The format
-            # is stated explicitly, so there is nothing to detect and a short
-            # probe costs nothing.
+            # Inputs are opened in order, and ffmpeg finishes probing one
+            # before connecting to the next - video used to be listed first,
+            # so it ate the whole probe budget and audio waited behind it,
+            # measured at 8.2s on a live device during which nothing was
+            # muxed at all. Audio goes first now (above): its format is
+            # fully declared, so it opens near-instantly and no longer
+            # blocks behind video. Video is free to get a generous probe
+            # without holding audio's connection hostage.
             "-analyzeduration",
             "0",
             # Not smaller: at 32 bytes ffmpeg cannot estimate the frame rate
@@ -240,21 +276,6 @@ class MediaPipeline:
             "-i",
             f"tcp://127.0.0.1:{self.video_port}",
         ]
-        if self._enable_audio:
-            args += [
-                "-f",
-                "mulaw",
-                "-ar",
-                str(AUDIO_SAMPLE_RATE),
-                "-ac",
-                "1",
-                "-use_wallclock_as_timestamps",
-                "1",
-                "-thread_queue_size",
-                "512",
-                "-i",
-                f"tcp://127.0.0.1:{self.audio_port}",
-            ]
         args += ["-c:v", "copy"]
         args += self._aspect_args()
         if self._enable_audio:

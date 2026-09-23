@@ -51,6 +51,23 @@ def test_connection_refused_fails_waiters_immediately() -> None:
     asyncio.run(run())
 
 
+def test_connection_refused_marks_the_session_disconnected() -> None:
+    """Without this, `connected` stays True forever after an ICMP
+    port-unreachable - the transport is never told its socket died, so the
+    coordinator's "session down, reconnect" check never fires even though
+    nothing is listening on the port any more."""
+
+    async def run() -> None:
+        session = _session()
+        session._connected = True
+        session._transport = object()  # stand-in; connected only checks "is not None"
+        assert session.connected, "test setup should look connected before the error"
+        session.error_received(ConnectionRefusedError(111, "Connection refused"))
+        assert not session.connected, "session still looks connected after ICMP unreachable"
+
+    asyncio.run(run())
+
+
 def test_other_socket_errors_do_not_latch() -> None:
     """A transient error must not permanently mark the device unreachable."""
 

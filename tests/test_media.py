@@ -234,6 +234,58 @@ def test_interleave_delta_is_bounded_when_audio_is_muxed() -> None:
     assert "-max_interleave_delta" not in video_only
 
 
+def test_audio_input_has_no_wallclock_and_comes_first() -> None:
+    """Two confirmed-against-the-real-device fixes, both easy to silently
+    regress:
+
+    -use_wallclock_as_timestamps on the audio input stamps each read() with
+    wallclock "now", but ffmpeg samples that once per underlying socket
+    read, not once per logical packet - a burst of already-queued packets
+    lands on one identical pts. Confirmed directly with -af ashowinfo: 13
+    consecutive packets, distinct content, one pts. That is what produced a
+    multi-second, growing audio lag. Audio's format is fully declared, so
+    dropping the flag lets ffmpeg derive pts from sample count instead -
+    immune to read-batching because it never looks at wallclock at all.
+
+    Audio must also be the first -i: ffmpeg finishes probing one input
+    before connecting to the next, and video listed first measured at 8.2s
+    of nothing muxed at all while it ate the whole probe budget.
+    """
+    import asyncio
+
+    async def args_for() -> list[str]:
+        pipeline = MediaPipeline("/bin/false", enable_audio=True)
+        pipeline.video_port = 1111
+        pipeline.audio_port = 2222
+        captured: list[list[str]] = []
+
+        async def fake_exec(*args, **kwargs):
+            captured.append(list(args))
+            raise OSError("not actually spawning ffmpeg")
+
+        real = asyncio.create_subprocess_exec
+        asyncio.create_subprocess_exec = fake_exec
+        try:
+            try:
+                await pipeline._async_spawn_ffmpeg()
+            except OSError:
+                pass
+        finally:
+            asyncio.create_subprocess_exec = real
+        return captured[0] if captured else []
+
+    args = asyncio.run(args_for())
+    audio_i = args.index("tcp://127.0.0.1:2222")
+    video_i = args.index("tcp://127.0.0.1:1111")
+    assert audio_i < video_i, "audio must be listed before video on the command line"
+
+    wallclock_positions = [i for i, a in enumerate(args) if a == "-use_wallclock_as_timestamps"]
+    assert len(wallclock_positions) == 1, "expected exactly one wallclock flag (video only)"
+    assert wallclock_positions[0] > audio_i, (
+        "the wallclock flag must belong to video, not sit ahead of audio's -i"
+    )
+
+
 def test_a_bad_aspect_is_dropped_not_passed_on() -> None:
     """A bad setting must degrade to no correction, never break the pipeline."""
     for value in ("wide", "1:2:3", "0/2", "-1/2", "1/", "16x9"):

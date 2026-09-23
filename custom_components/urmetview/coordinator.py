@@ -42,6 +42,21 @@ MAX_CYCLE_ATTEMPTS = 4
 
 RECONNECT_BACKOFF = (2, 5, 10, 30, 60)
 
+#: How long without a real video/audio frame before a "running" stream is
+#: treated as stale rather than trusted. Generous against real observed
+#: gaps (well under 1s for video, a couple of seconds for audio even under
+#: jitter) - this is about catching the device having gone quiet, not
+#: normal delivery variance.
+STREAM_STALE_TIMEOUT = 10.0
+
+#: How long to give a cheap resume (re-sending start_video/start_audio on
+#: the SAME, still-connected session) before deciding it did not work and
+#: falling back to a full reconnect. Confirmed against the real device:
+#: media resumed within a few seconds of re-sending these on an already-open
+#: session, no re-login needed, when the session itself was still alive and
+#: it was specifically the device's stream that had gone quiet.
+CHEAP_RESUME_GRACE = 8.0
+
 
 class UrmetCoordinator:
     """Single owner of the device session."""
@@ -331,6 +346,20 @@ class UrmetCoordinator:
     async def _async_start_video_locked(self) -> None:
         """Caller must hold _video_lock."""
         if self._video_running:
+            if self._stream_is_healthy():
+                return
+            # The session can stay "connected" at the socket level while the
+            # device has silently stopped sending - confirmed on the real
+            # device (also reproduced by the Urmet phone app itself, so this
+            # is device behaviour to design around, not a bug to chase
+            # further). A consumer asking for the stream again is exactly
+            # the moment to notice and recover, rather than handing back the
+            # same dead pipeline.
+            _LOGGER.debug(
+                "Stream requested again but no media for >%ss - recovering",
+                STREAM_STALE_TIMEOUT,
+            )
+            await self._async_recover_stale_stream()
             return
         session = await self._async_require_session()
         await self.pipeline.async_start()
@@ -352,6 +381,57 @@ class UrmetCoordinator:
         self._start_idle_monitor()
         _LOGGER.debug("Device video started")
         self._notify()
+
+    def _stream_is_healthy(self) -> bool:
+        """A running stream is only trustworthy if media is actually
+        arriving - ``session.connected`` alone is not enough evidence, it is
+        a transport/socket-level flag that can stay True while the device
+        has gone quiet."""
+        session = self.session
+        if session is None or not session.connected:
+            return False
+        return time.monotonic() - session.last_media_at < STREAM_STALE_TIMEOUT
+
+    async def _async_recover_stale_stream(self) -> None:
+        """Caller must hold _video_lock, with ``_video_running`` already True.
+
+        Tries the cheap path first: re-send start_video/start_audio on the
+        SAME, still-connected session. Confirmed against the real device
+        this alone resumes a stalled stream within a few seconds, no
+        re-login needed - the common case is the session surviving while
+        specifically the device's stream went quiet. Only falls back to a
+        full reconnect (the same path _async_keepalive uses for a session
+        that dropped outright) if the cheap path does not bring media back
+        within CHEAP_RESUME_GRACE.
+        """
+        session = self.session
+        if session is not None and session.connected:
+            with contextlib.suppress(UrmetError):
+                async with self._command_lock:
+                    await session.async_start_video(self.quality)
+                    await session.async_start_audio()
+            deadline = time.monotonic() + CHEAP_RESUME_GRACE
+            while time.monotonic() < deadline:
+                await asyncio.sleep(1.0)
+                if time.monotonic() - session.last_media_at < CHEAP_RESUME_GRACE:
+                    _LOGGER.debug("Stream recovered via cheap resume")
+                    self._mark_activity()
+                    return
+            _LOGGER.debug(
+                "Cheap resume did not bring media back within %ss - "
+                "falling back to a full reconnect",
+                CHEAP_RESUME_GRACE,
+            )
+
+        await self._async_disconnect()
+        await self._async_connect()
+        session = await self._async_require_session()
+        async with self._command_lock:
+            await session.async_start_video(self.quality)
+            with contextlib.suppress(UrmetError):
+                await session.async_start_audio()
+        self._mark_activity()
+        _LOGGER.debug("Stream recovered via full reconnect")
 
     async def _async_stop_video(self) -> None:
         async with self._video_lock:
@@ -389,6 +469,12 @@ class UrmetCoordinator:
                 await asyncio.sleep(2.0)
                 if self.pipeline.client_count > 0:
                     self._mark_activity()
+                    if not self._stream_is_healthy():
+                        # Someone is actively watching a stream that has
+                        # gone quiet - recover now rather than waiting for
+                        # them to notice and ask again.
+                        with contextlib.suppress(UrmetError):
+                            await self._async_start_video()
                     continue
                 if time.monotonic() - self._last_activity < self.stream_idle_timeout:
                     continue

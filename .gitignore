@@ -5,3 +5,7 @@ __pycache__/
 *.mp4
 .venv/
 .DS_Store
+
+# Standalone reference/test scripts kept outside version control -- some
+# (e.g. urmet_login.py) carry a live device auth hash as a default.
+tmp/

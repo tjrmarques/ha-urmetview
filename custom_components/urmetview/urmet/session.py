@@ -492,6 +492,12 @@ class UrmetSession(asyncio.DatagramProtocol):
         _LOGGER.debug("UDP error on session to %s:%s: %s", self.host, self.port, exc)
         if isinstance(exc, ConnectionRefusedError):
             self._unreachable = exc
+            # Without this, `connected` (self._connected and transport is
+            # not None) stays True forever - the transport is never told
+            # its socket died, so _async_keepalive's "session down,
+            # reconnect" check never fires for this failure mode even
+            # though nothing is listening on the port any more.
+            self._connected = False
             for futures in self._pending.values():
                 for future in futures:
                     if not future.done():
