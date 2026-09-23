@@ -9,3 +9,7 @@ __pycache__/
 # Standalone reference/test scripts kept outside version control -- some
 # (e.g. urmet_login.py) carry a live device auth hash as a default.
 tmp/
+
+# HA debug-log downloads (see field notes §19) -- real device IPs, session
+# ports and internal network details, not meant for the repo.
+*.log

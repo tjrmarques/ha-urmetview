@@ -17,11 +17,15 @@ Everything established, measured, and disproved while building a Home Assistant 
 | Protocol | ✅ **Solved.** Login, video, audio, station switching, lock and gate all work from Python against the real device. |
 | Discovery | ✅ **Solved and local.** LAN search returns a working session, no cloud needed. |
 | Doorbell | ✅ **Understood.** Ring is a TCP push to port 32002, detectable by router mirror. |
-| Video in the mux | ✅ **Ported into `media.py`.** Audio-first input order (§02) applied to the real integration, not just the test rig. |
+| Video in the mux | 🔴 **Same wallclock-collision bug as §13's audio fix, confirmed live, not yet fixed (§18).** Audio-first input order (§02) is applied, but video's DTS collides under bursty reads exactly like audio used to — real symptom on the deployed instance (frozen/flashing iPhone playback, browser timeline catching up), not theoretical. **This is the current blocker.** |
 | Audio in the mux | ✅ **Ported into `media.py`.** The §13 wallclock fix (drop `-use_wallclock_as_timestamps` on the audio input only) applied to the real integration. Still open: a longer soak test and a live human-perception check — both only ever ran against the test rig, not `media.py` itself. |
+| Relay fan-out (stage 4) | ✅ **Real bug found and fixed (§17)**, first time this path was ever exercised against a real consumer — duplicate first-GOP delivery to joining consumers. |
 | Push to repo | ✅ **Working as of 14 Sep 2026 (new container).** Normal `git push` succeeds; the bundle workaround is no longer needed. |
 | Session recovery | ✅ **Applied.** §10's `_connected` fix is back in (see below — it had been reverted on purpose, not because of any doubt about it). Also new: the coordinator now detects a *stale* stream (session still `connected`, but no real media for a while) and recovers it, cheap path first — see §15. |
+| Stream stays on when idle | ✅ **Fixed (§16).** Dashboard thumbnail polling could pin the device stream open, or restart it, indefinitely with nobody watching. |
+| Brand icon | ✅ **Shipped** at `custom_components/urmetview/brand/icon.png`, confirmed served correctly via HA's brands proxy API. |
 | Dev sandbox → device reach | ✅ **Solved via a WebSocket-to-UDP bridge.** This container has no direct LAN path to the device (see §12); a host-side bridge service closes that gap for testing. |
+| Getting real debug output from HA | ✅ **Solved (§19).** `system_log`/the on-screen Logs page is WARNING+-curated regardless of logger level; per-integration "Enable/Disable debug logging" from the integration card is what actually gets full DEBUG content, via a downloadable log file. |
 
 ---
 
@@ -419,4 +423,33 @@ libav.h264:            corrupted macroblock ...
 
 **Fix:** `_release_pending` now returns the set of consumers it just admitted; `_broadcast` takes a `skip` parameter and `_async_pump_output` passes the just-admitted set so they're excluded from that same batch's broadcast - they already got exactly what they need (PAT onward), nothing more, nothing twice. The test was rewritten to actually assert non-duplication, matching its own docstring's original intent.
 
-**Status:** fixed, not yet re-validated live. No prior "known good" baseline exists for this stage to compare against - this is the first time it's ever been correctly exercised. anywhere in this protocol: the LAN broadcast carries the device password in cleartext, and the static auth hash is replayable for lock and gate control. VLAN isolation is the recommendation. Captures shared for further work should be scrubbed of UID, hash and addresses — the auth hash currently sits as a default inside the local tools and should not be published with them.
+**Status:** fixed, not yet re-validated live. No prior "known good" baseline exists for this stage to compare against - this is the first time it's ever been correctly exercised.
+
+## 18 — Video has the same wallclock-collision bug as audio (§13) — diagnosed, fix not yet built
+
+Found from a real debug-logging session (see "How to actually get debug output" below) after §17's fix was deployed: PC browser worked (with some instability), iPhone app showed either a frozen frame that "flashes" occasionally, or nothing at all. User also reported the browser's timeline slider visibly trying to "catch up" to live.
+
+**Root cause, same signature as §13's audio bug, now confirmed for video too:**
+```
+[vost#0:0/copy @ ...] Non-monotonic DTS; previous: 10813612, current: 10813612; changing to 10813613
+```
+Dozens of these throughout one session, `previous` and `current` always *exactly* equal, not just close. This is `-use_wallclock_as_timestamps` on the video input colliding under bursty socket reads - the exact mechanism §13 root-caused for audio (ffmpeg samples wallclock once per read(), not once per frame). Video still carries this flag because, unlike audio, raw H.264 has no fixed sample rate to derive pts from instead - dropping it outright (audio's fix) is not an option for video as-is.
+
+Also present throughout, correlated in time with the DTS collisions: repeated `[h264 @ ...] Failed to parse header of NALU (type 0): "Invalid data found when processing input". Skipping NALU.` (both from the raw demuxer and the `h264_metadata` aspect-ratio bitstream filter), and `[urmetview.camera] Snapshot failed: non-existing PPS 0 referenced`. Not yet proven which way the causation runs between the DTS collisions and the NALU corruption, but they track together closely enough to treat as one root cause for now.
+
+**Why this plausibly explains every video symptom seen this session:** when ffmpeg force-corrects a run of collided DTS values by bumping +1 tick each time, a whole burst of frames ends up claiming almost the same presentation instant. A player shows one frame, then jumps through the rest nearly instantly once a real gap finally arrives - matching the iPhone's "fixed frame, then a flash," and the browser's timeline slider "catching up" from the same underlying discontinuity.
+
+**The fix is bigger than §13's** - there's no sample-count fallback for video. The tool for this was already built and documented in §14 but not yet wired up: the device embeds a real per-frame relative clock in *both* audio's and video's media sub-header (the ~256.567ms coarse tick at one byte, its carry at the next, plus a finer sub-second field) - §14 explicitly flagged "worth revisiting if video-side sync issues ever surface again," and they now have, with direct log evidence. Plan: decode the device's embedded timestamp per video frame (parsing already exists for `stream_type`, needs extending to the timing bytes), use it to pace/timestamp video correctly instead of trusting ffmpeg's bursty wallclock-per-read - mirroring the audio fix's actual lesson (derive pts from something intrinsic to the content, not from when *we* happened to read it), applied to video's specific constraint (no sample count, so use the device clock instead). Same validation process as §13: build and prove it in `tmp/urmet_live_view_ts.py` against the real device via the bridge first, then port to `media.py`.
+
+**Status: diagnosed, not yet implemented.** This is the next concrete task.
+
+## 19 — How to actually get debug output from the real instance
+
+Learned the hard way this session, worth recording so it isn't re-derived:
+
+- `logger.set_level` (called via the REST/WS service API) does make DEBUG records get created and written to the real log file - but **`system_log`'s in-memory list (queried via the `system_log/list` WebSocket command, and what backs the on-screen Settings → System → Logs page) has its own independent WARNING+ threshold that does not lower just because a logger's level was raised.** Confirmed by enabling debug on `custom_components.urmetview` twice, across two separate real test attempts, and getting zero matching entries either time via that API - the debug records were being written somewhere, just not into that curated view.
+- **What actually works:** Settings → Devices & Services → the integration's card → ⋮ menu → **Enable debug logging**, reproduce the issue, then ⋮ → **Disable debug logging** - turning it *off* is what triggers a full `.log` file download containing everything captured while it was on, bypassing `system_log`'s curation entirely. This is the only method that surfaced `ffmpeg:`-prefixed lines (our own logger wrapping ffmpeg's stderr, all at DEBUG level by design) or go2rtc's own internal Python tracebacks.
+- HA's WebSocket API (`ws://<host>:8123/api/websocket`) is reachable through this sandbox's proxy the same way the REST API is - the proxy transparently rewrites the `{"type": "auth", "access_token": ...}` message payload too, not just HTTP Authorization headers. Confirmed working; useful for anything REST doesn't expose (was needed here for `system_log/list`, even though that specific command turned out to have the curation limitation above).
+- A downloaded debug-log file placed into the project root via the host's bind-mount can come through with a permission/ownership state that the sandbox's `agent` user (UID 1000) cannot read, even when it looks identical to every other file from the host's own `ls -l` (matching host-side ownership and mode bits). Cause not fully root-caused (not a simple UID mismatch - other files from the same mount and same-looking permissions work fine); workaround used was `grep`-ing the relevant lines out on the host side and pasting them directly instead of transferring the file.
+
+---
