@@ -501,16 +501,31 @@ class MediaPipeline:
                     continue
                 packets, buffer = buffer[:whole], buffer[whole:]
 
+                just_joined: frozenset[asyncio.StreamWriter] = frozenset()
                 if self._pending_clients:
-                    self._release_pending(packets)
-                self._broadcast(packets)
+                    just_joined = self._release_pending(packets)
+                self._broadcast(packets, skip=just_joined)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Media output pump failed")
 
-    def _release_pending(self, packets: bytes) -> None:
-        """Admit waiting consumers from the first PAT in this batch."""
+    def _release_pending(self, packets: bytes) -> frozenset[asyncio.StreamWriter]:
+        """Admit waiting consumers from the first PAT in this batch.
+
+        Returns who was just admitted, so the caller's _broadcast for this
+        same batch can skip them - they were already sent everything from
+        the PAT onward here, which is exactly what a joining consumer needs
+        (not the whole batch, which can start before the PAT with packets
+        left over from the previous cycle). Sending the unsliced batch to
+        them too, right after, was a real bug: confirmed live against a
+        real go2rtc consumer as "Packet corrupt", "non-existing PPS 0
+        referenced", "no frame!", then a dropped connection - a garbled,
+        doubled-up first GOP for every new joiner. Silent until this
+        session, because this whole path was previously exercised only in
+        synthetic single-batch tests, never against a real streaming
+        consumer end to end.
+        """
         for offset in range(0, len(packets), TS_PACKET_SIZE):
             packet = packets[offset : offset + TS_PACKET_SIZE]
             # PID is the low 13 bits of bytes 1-2; PID 0 is the PAT.
@@ -522,10 +537,15 @@ class MediaPipeline:
                 self._out_clients.add(client)
                 self._write(client, packets[offset:])
             _LOGGER.debug("Admitted %s consumer(s) at a PAT", len(joining))
-            return
+            return frozenset(joining)
+        return frozenset()
 
-    def _broadcast(self, packets: bytes) -> None:
+    def _broadcast(
+        self, packets: bytes, skip: frozenset[asyncio.StreamWriter] = frozenset()
+    ) -> None:
         for client in list(self._out_clients):
+            if client in skip:
+                continue
             self._write(client, packets)
 
     def _write(self, client: asyncio.StreamWriter, data: bytes) -> None:

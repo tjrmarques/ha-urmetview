@@ -99,8 +99,8 @@ Audio is written by a dedicated pacer thread at a strict 40ms tick — real fram
 | 1 | Device → UDP session — login, acks, ordering, keepalive. Runs for hours. | ✅ proven on hardware |
 | 2 | Reassembly → H.264 elementary stream — merges keyframe and P-frame substreams in sequence order. | ✅ proven on hardware |
 | 3 | ffmpeg mux → MPEG-TS — H.264 copy + mu-law to AAC. | 🟡 fixed and confirmed against the device (§02) — in the test rig only, not yet ported into `media.py` |
-| 4 | Relay fan-out → consumers — 188-byte alignment, consumers admitted at a PAT. | 🟡 synthetic tests only |
-| 5 | go2rtc → WebRTC | 🟡 untested — has thrown on its own producer list |
+| 4 | Relay fan-out → consumers — 188-byte alignment, consumers admitted at a PAT. | ✅ real bug found and fixed (§17) once actually exercised against a live consumer — was synthetic-tests-only before |
+| 5 | go2rtc → WebRTC | 🟡 first real end-to-end attempt made (§17); revealed the §4 bug rather than confirming this stage on its own |
 
 Stage 3 is now settled (§02) — both symptoms that made it impossible to tell stages 3, 4 and 5 apart are fixed and confirmed against the device. Stages 4 and 5 remain exactly as untested as before: nothing about them could be diagnosed while the stream feeding them was wrong, and that is still true until §02 is ported into `media.py` and re-tested inside Home Assistant.
 
@@ -399,6 +399,24 @@ Notable: `MediaPipeline.client_count`'s own docstring already says the intent wa
 
 **Status:** both fixes applied; awaiting live re-test. No automated test yet for either, same gap as §15.
 
----
+## 17 — A real bug in the relay fan-out: a joining consumer got its first GOP sent twice
 
-No transport security anywhere in this protocol: the LAN broadcast carries the device password in cleartext, and the static auth hash is replayable for lock and gate control. VLAN isolation is the recommendation. Captures shared for further work should be scrubbed of UID, hash and addresses — the auth hash currently sits as a default inside the local tools and should not be published with them.
+Found from the same live test as §16, once video was actually stable enough to reach a real go2rtc consumer. This is stage 4 in §03's pipeline table (relay fan-out → consumers) — previously marked "synthetic tests only," meaning it had never actually been exercised end to end against a real streaming consumer before this session. It hadn't been reached before because the mux-level bugs fixed earlier this session (§13, §16) were themselves blocking a clean enough stream from ever getting this far.
+
+**Symptom, from debug logs with a real iPhone HA app attempt (timestamps within ~12s of each other):**
+```
+HA stream component:  Error from stream worker: Stream ended; no additional packets
+go2rtc:                error=EOF url=tcp://127.0.0.1:<relay port>
+                        error=EOF url=ffmpeg:...
+libav.mpegts:          Packet corrupt (stream = 0, dts = ...)  [x2]
+libav.h264:            corrupted macroblock ...
+                        non-existing PPS 0 referenced
+                        no frame!
+```
+`non-existing PPS 0 referenced` is exactly the symptom `media.py`'s own docstring already names for a consumer starting mid-GOP - referencing a keyframe it never saw.
+
+**Root cause:** `_async_pump_output` called `_release_pending(packets)` (which admits any waiting consumer at the first PAT found in this batch, writing them `packets[offset:]` - the PAT onward) and then *unconditionally* called `_broadcast(packets)` on the *same, unsliced* batch right after - which now also includes the just-admitted consumer, since `_release_pending` had already added them to `_out_clients`. A joining consumer therefore received the PAT-onward slice once, immediately followed by the *entire original batch again* (including whatever came before the PAT, left over from the previous PAT/GOP cycle) - a doubled, partially-stale first GOP. Confirmed the existing test for this (`test_admitted_consumer_is_not_sent_the_batch_twice`) had an assertion that mathematically required the duplicate (`client.written == first + batch`, where `first` already equaled `batch`), directly contradicting its own docstring ("_broadcast must not repeat it") - a genuinely misleading passing test that had been asserting the bug as correct behavior.
+
+**Fix:** `_release_pending` now returns the set of consumers it just admitted; `_broadcast` takes a `skip` parameter and `_async_pump_output` passes the just-admitted set so they're excluded from that same batch's broadcast - they already got exactly what they need (PAT onward), nothing more, nothing twice. The test was rewritten to actually assert non-duplication, matching its own docstring's original intent.
+
+**Status:** fixed, not yet re-validated live. No prior "known good" baseline exists for this stage to compare against - this is the first time it's ever been correctly exercised. anywhere in this protocol: the LAN broadcast carries the device password in cleartext, and the static auth hash is replayable for lock and gate control. VLAN isolation is the recommendation. Captures shared for further work should be scrubbed of UID, hash and addresses — the auth hash currently sits as a default inside the local tools and should not be published with them.

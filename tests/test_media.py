@@ -102,17 +102,31 @@ def test_consumer_is_admitted_exactly_at_the_pat() -> None:
 
 
 def test_admitted_consumer_is_not_sent_the_batch_twice() -> None:
-    """_release_pending writes the tail itself; _broadcast must not repeat it."""
+    """_release_pending writes the tail itself; _broadcast must not repeat it.
+
+    Confirmed live as a real bug before this fix, against a real go2rtc
+    consumer: a joining consumer got the PAT-triggering batch twice - once
+    from _release_pending's own write, once more from the very next
+    unconditional _broadcast over the same batch - corrupting its first
+    GOP. Logged as "Packet corrupt", "non-existing PPS 0 referenced", "no
+    frame!", then the consumer dropped the connection. Silent until then
+    because this path was previously only exercised in synthetic tests
+    that (like the old version of this one) never actually asserted
+    non-duplication - see git history for the version that used to assert
+    the opposite of its own docstring.
+    """
     pipeline = _pipeline()
     client = _FakeWriter()
     pipeline._pending_clients.add(client)
     batch = ts_packet(0x0000) + ts_packet(0x0100)
 
-    pipeline._release_pending(batch)
+    just_joined = pipeline._release_pending(batch)
     first = client.written
-    # The pump calls _broadcast next, over the same batch.
-    pipeline._broadcast(batch)
-    assert client.written == first + batch
+    assert first == batch, "a joining consumer should get everything from the PAT onward"
+    # The pump calls _broadcast next, over the same batch, skipping whoever
+    # was just admitted - see _async_pump_output.
+    pipeline._broadcast(batch, skip=just_joined)
+    assert client.written == first, "a joining consumer must not be sent the same batch twice"
 
 
 def test_a_backed_up_consumer_is_dropped_not_buffered() -> None:
