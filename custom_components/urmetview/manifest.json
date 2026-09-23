@@ -1,6 +1,6 @@
 {
   "domain": "urmetview",
-  "name": "Urmet UrmetView Intercom",
+  "name": "UrmetView Intercom",
   "codeowners": ["@tjrmarques"],
   "config_flow": true,
   "dependencies": ["ffmpeg"],
